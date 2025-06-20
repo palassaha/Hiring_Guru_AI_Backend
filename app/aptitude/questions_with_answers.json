@@ -1,0 +1,113 @@
+[
+    {
+        "question": "A train running at the speed of 60 km/hr crosses a pole in 9 seconds. What is the length of the train?",
+        "options": [
+            "120 metres",
+            "180 metres",
+            "324 metres",
+            "150 metres"
+        ],
+        "answer": "150 metres",
+        "explanation": ""
+    },
+    {
+        "question": "A train 125 m long passes a man, running at 5 km/hr in the same direction in which the train is going, in 10 seconds. The speed of the train is:",
+        "options": [
+            "A train 125 m long passes a man, running at 5 km/hr in the same direction in which the train is going, in 10 seconds. The speed of the train is:",
+            "45 km/hr",
+            "50 km/hr",
+            "54 km/hr",
+            "55 km/hr"
+        ],
+        "answer": "50 km/hr",
+        "explanation": ""
+    },
+    {
+        "question": "A batsman scored 110 runs which included 3 boundaries and 8 sixes. What percent of his total score did he make by running between the wickets?",
+        "options": [
+            "45%",
+            "45.5%",
+            "54.6%",
+            "55%"
+        ],
+        "answer": "45.5%",
+        "explanation": ""
+    },
+    {
+        "question": "Two students appeared at an examination. One of them secured 9 marks more than the other and his marks was 56% of the sum of their marks. The marks obtained by them are:",
+        "options": [
+            "Two students appeared at an examination. One of them secured 9 marks more than the other and his marks was 56% of the sum of their marks. The marks obtained by them are:",
+            "39, 30",
+            "41, 32",
+            "42, 33",
+            "43, 34"
+        ],
+        "answer": "42, 33",
+        "explanation": ""
+    },
+    {
+        "question": "In the first 10 overs of a cricket game, the run rate was only 3.2. What should be the run rate in the remaining 40 overs to reach the target of 282 runs?",
+        "options": [
+            "6.25",
+            "6.5",
+            "6.75"
+        ],
+        "answer": "6.25",
+        "explanation": ""
+    },
+    {
+        "question": "A family consists of two grandparents, two parents and three grandchildren. The average age of the grandparents is 67 years, that of the parents is 35 years and that of the grandchildren is 6 years. What is the average age of the family? None of these",
+        "options": [
+            "28 4 years",
+            "31 5 years",
+            "32 1 years"
+        ],
+        "answer": "31 5 years",
+        "explanation": ""
+    },
+    {
+        "question": "Alfred buys an old scooter for Rs. 4700 and spends Rs. 800 on its repairs. If he sells the scooter for Rs. 5800, his gain percent is:",
+        "options": [
+            "Alfred buys an old scooter for Rs. 4700 and spends Rs. 800 on its repairs. If he sells the scooter for Rs. 5800, his gain percent is:",
+            "4.4%",
+            "5.5%",
+            "10%",
+            "12%"
+        ],
+        "answer": "12%",
+        "explanation": ""
+    },
+    {
+        "question": "The cost price of 20 articles is the same as the selling price of x articles. If the profit is 25%, then the value of x is:",
+        "options": [
+            "2.",
+            "20",
+            "25%",
+            "15",
+            "16"
+        ],
+        "answer": "16",
+        "explanation": ""
+    },
+    {
+        "question": "A person crosses a 600 m long street in 5 minutes. What is his speed in km per hour?",
+        "options": [
+            "7.2",
+            "8.4"
+        ],
+        "answer": "7.2",
+        "explanation": ""
+    },
+    {
+        "question": "An aeroplane covers a certain distance at a speed of 240 kmph in 5 hours. To cover the same distance in 1 hours, it must travel at a speed of:",
+        "options": [
+            "An aeroplane covers a certain distance at a speed of 240 kmph in 5 hours. To cover the same distance in 1 hours, it must travel at a speed of:",
+            "300 kmph",
+            "360 kmph",
+            "600 kmph",
+            "720 kmph"
+        ],
+        "answer": "1200 kmph",
+        "explanation": ""
+    }
+]
