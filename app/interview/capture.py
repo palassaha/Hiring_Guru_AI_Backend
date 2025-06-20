@@ -1,3 +1,4 @@
+
 import cv2
 import sounddevice as sd
 import soundfile as sf
@@ -11,18 +12,21 @@ def create_session_folder():
     os.makedirs(path, exist_ok=True)
     return path
 
-def record_audio(path, duration=10, fs=44100):
-    print("[Audio] Recording...")
-    audio = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+def record_audio(path, duration=10, fs=16000):
+    """
+    Records mono, 16-bit PCM audio at 16kHz (Whisper-compatible).
+    """
+    print(f"[🎙️ Audio] Recording for {duration} seconds at {fs} Hz (mono)...")
+    audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
     sd.wait()
     audio_path = os.path.join(path, "user_audio.wav")
-    sf.write(audio_path, audio, fs)
-    print(f"[Audio] Saved to {audio_path}")
+    sf.write(audio_path, audio, fs, subtype='PCM_16')
+    print(f"[💾 Audio] Saved to {audio_path}")
 
 def record_video(path, duration=10):
-    print("[Video] Recording...")
+    print("[🎥 Video] Recording...")
     cap = cv2.VideoCapture(0)
-    width  = int(cap.get(3))
+    width = int(cap.get(3))
     height = int(cap.get(4))
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -41,7 +45,7 @@ def record_video(path, duration=10):
     cap.release()
     out.release()
     cv2.destroyAllWindows()
-    print(f"[Video] Saved to {video_path}")
+    print(f"[💾 Video] Saved to {video_path}")
 
 def record_audio_video(duration=10):
     session_path = create_session_folder()
