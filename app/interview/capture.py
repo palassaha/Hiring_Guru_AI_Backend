@@ -12,16 +12,16 @@ def create_session_folder():
     os.makedirs(path, exist_ok=True)
     return path
 
-def record_audio(path, duration=10, fs=16000):
+def record_audio(file_path, duration=10, fs=16000):
     """
     Records mono, 16-bit PCM audio at 16kHz (Whisper-compatible).
     """
     print(f"[🎙️ Audio] Recording for {duration} seconds at {fs} Hz (mono)...")
     audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
     sd.wait()
-    audio_path = os.path.join(path, "user_audio.wav")
-    sf.write(audio_path, audio, fs, subtype='PCM_16')
-    print(f"[💾 Audio] Saved to {audio_path}")
+    sf.write(file_path, audio, fs, subtype='PCM_16')
+    print(f"[💾 Audio] Saved to {file_path}")
+
 
 def record_video(path, duration=10):
     print("[🎥 Video] Recording...")
