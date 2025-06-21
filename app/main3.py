@@ -128,7 +128,15 @@ class GenerateAptitudeQuestionsRequestModel(BaseModel):
 
 class GenerateAptitudeQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
-# Communication Question Generator Class
+
+class TechnicalGenerationInput(BaseModel):
+    roundType: str
+    difficulty: str
+    questionCount: int
+    category: Optional[str]
+    duration: int
+    type: str
+
 class GenerateTechnicalQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
 
@@ -445,41 +453,41 @@ async def generate_aptitude_questions(req: GenerateAptitudeQuestionsRequestModel
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
 
-@app.get("/api/generate-technical-questions", response_model=GenerateTechnicalQuestionsRequest)
-async def generate_technical_questions():
-    """
-    API 5: Generate technical questions using web scraping
-    """
+@app.post("/api/generate-technical-questions", response_model=GenerateTechnicalQuestionsRequest)
+async def generate_technical_questions(input: TechnicalGenerationInput):
     try:
-        # Create scraper instance and run scraping
+        # Scrape questions (you can also filter based on input.category etc.)
         scraper = TechnicalQuestionScraper(headless=True)
         scraped_questions = scraper.run_scraping()
-        
+
         if not scraped_questions:
             raise HTTPException(status_code=500, detail="No questions were scraped from the websites")
-        
-        # Process questions with AI to generate answers
+
         try:
-            process_technical_questions("app/technical/question_bank.json", "app/technical/questions_with_answers.json")
-            
-            # Load the processed questions with answers
+            process_technical_questions(
+                "app/technical/question_bank.json",
+                "app/technical/questions_with_answers.json"
+            )
+
             with open("app/technical/questions_with_answers.json", "r", encoding="utf-8") as f:
                 questions_with_answers = json.load(f)
-                
+
             if not questions_with_answers:
-                # If AI processing failed, return the scraped questions without answers
-                print("Warning: AI processing failed, returning scraped questions without answers")
+                print("AI processing failed, using scraped questions")
                 questions_with_answers = scraped_questions
-                
+
         except Exception as ai_error:
             print(f"AI processing error: {ai_error}")
-            # Return scraped questions without AI-generated answers
             questions_with_answers = scraped_questions
-        
-        return GenerateTechnicalQuestionsRequest(questions_with_answers=questions_with_answers)
-        
+
+        # Optionally, trim based on `input.questionCount`
+        return GenerateTechnicalQuestionsRequest(
+            questions_with_answers=questions_with_answers[:input.questionCount]
+        )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating technical questions: {str(e)}")
+
 
 @app.post("/generate-questions", response_model=ScreeningResponse)
 async def generate_screening_questions(request: ScreeningRequest):
@@ -519,7 +527,7 @@ async def assess_candidate_responses(request: AssessmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error assessing responses: {str(e)}")
 
-@app.post("/evaluate-aptitude-answers", response_model=EvaluationResponse)
+@app.post("/api/evaluate-aptitude-answers", response_model=EvaluationResponse)
 async def evaluate_answers(request: EvaluationRequest):
     """
     Evaluate aptitude test answers using LLM-generated correct answers
@@ -577,8 +585,7 @@ async def evaluate_technical_answers(request: EvaluationRequestTechnical):
         for question_data in request.questions:
             # Generate correct answer using LLM based on question type
             correct_answer = generate_answer_groq_technical(
-                question_data.question, 
-                question_data.options, 
+                question_data.question,  
                 request.question_type
             )
             
@@ -599,7 +606,6 @@ async def evaluate_technical_answers(request: EvaluationRequestTechnical):
                 "user_answer": question_data.answer,
                 "correct_answer": correct_answer,
                 "is_correct": is_correct,
-                "options": question_data.options
             }
             results.append(result)
         

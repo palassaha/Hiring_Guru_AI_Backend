@@ -1,24 +1,12 @@
 [
     {
-        "question": "Which of the following languages is more suited to a structured program?",
+        "question": "What difference does the 5th generation computer have from other generation computers?",
         "options": [
-            "PL/1",
-            "FORTRAN",
-            "BASIC",
-            "PASCAL",
+            "Technological advancement",
+            "Scientific code",
+            "Object Oriented Programming",
+            "All of the above",
             "None of the above"
-        ],
-        "answer": "",
-        "explanation": ""
-    },
-    {
-        "question": "Which of the following is not a logical data-base structure?",
-        "options": [
-            "tree",
-            "relational",
-            "network",
-            "chain",
-            "All of the above"
         ],
         "answer": "",
         "explanation": ""
@@ -48,10 +36,12 @@
         "explanation": ""
     },
     {
-        "question": "Which will legally declare, construct, and initialize an array?",
+        "question": "Which is a valid keyword in java?",
         "options": [
-            "3. Which will legally declare, construct, and initialize an array? int [] myList = {\"1\", \"2\", \"3\"}; int [] myList = (5, 8,",
-            "; int myList [] [] = {4,9,7,0}; int myList [] = {4, 3, 7};"
+            "interface",
+            "string",
+            "Float",
+            "unsigned"
         ],
         "answer": "",
         "explanation": ""

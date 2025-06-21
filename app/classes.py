@@ -81,7 +81,6 @@ class AssessmentResponse(BaseModel):
 
 class Question(BaseModel):
     question: str
-    options: List[str]
     answer: str
 
 class EvaluationRequest(BaseModel):
