@@ -83,9 +83,12 @@ class Question(BaseModel):
     question: str
     options: List[str]
     answer: str
+class QuestionApt(BaseModel):
+    question: str
+    answer: str
 
 class EvaluationRequest(BaseModel):
-    questions: List[Question]
+    questions: List[QuestionApt]
 
 class EvaluationResponse(BaseModel):
     overallScore: str
@@ -100,3 +103,17 @@ class GenerateAptitudeQuestionsRequest(BaseModel):
 # Communication Question Generator Class
 class GenerateTechnicalQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
+
+class GreetingRequest(BaseModel):
+    user_name: str
+    user_role: str
+
+class AIResponseRequest(BaseModel):
+    session_id: str
+    question_number: Optional[int] = 1
+    user_transcript: Optional[str] = None
+
+class AnalysisResponse(BaseModel):
+    transcript: str
+    nervousness_score: Optional[float] = None
+    features: Optional[dict] = None

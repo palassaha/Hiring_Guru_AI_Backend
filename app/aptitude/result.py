@@ -15,26 +15,12 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 openai.api_key = GROQ_API_KEY
 openai.api_base = "https://api.groq.com/openai/v1"
 
-# FastAPI app
-app = FastAPI(title="Aptitude Answer Checker API", version="1.0.0")
 
 # Pydantic models
-class Question(BaseModel):
-    question: str
-    options: List[str]
-    answer: str
 
-class EvaluationRequest(BaseModel):
-    questions: List[Question]
 
-class EvaluationResponse(BaseModel):
-    overallScore: str
-    feedback: Dict[str, Any]
-    detailedResults: List[Dict[str, Any]]
-
-def generate_answer_groq(question: str, options: List[str]) -> str:
+def generate_answer_groq(question: str) -> str:
     """Generate correct answer using Groq LLM"""
-    formatted_options = "\n".join([f"- {opt}" for opt in options])
 
     prompt = f"""
 You are an expert aptitude test evaluator. Your task is to choose the correct answer to the multiple-choice question below. Select the correct answer **only** from the given options.
@@ -43,10 +29,8 @@ You are an expert aptitude test evaluator. Your task is to choose the correct an
 
 Question: {question}
 
-Options:
-{formatted_options}
 
-Only return the correct option, nothing else.
+Only return the correct answer, nothing else.
 """
 
     try:

@@ -1,3 +1,4 @@
+import base64
 import os
 import json
 import uuid
@@ -12,8 +13,11 @@ from typing import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
-from app.classes import AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateTechnicalQuestionsRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TranscriptionResponse
+from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TranscriptionResponse
 from app.dsa_coding.scraper_3 import scrape_random_questions
+from app.interview.emotion_detector import score_nervousness_relative
+from app.interview.feature_extract import compute_relative_features, extract_voice_features
+from app.interview.llm_groq import generate_question
 from app.technical.results import generate_answer_groq as generate_answer_groq_technical , generate_detailed_feedback as generate_detailed_feedback_technical, is_answer_correct as is_answer_correct_technical
 from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
@@ -53,6 +57,20 @@ os.makedirs("data/sessions", exist_ok=True)
 # Helper function to create session ID
 def create_session_id():
     return f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+sessions = {}
+
+def create_session_folder(session_id: str):
+    """Create session folder for storing audio files"""
+    path = os.path.join("data", "interviews", session_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def get_session(session_id: str):
+    """Get session data"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return sessions[session_id]
 
 # API Endpoints
 
@@ -439,8 +457,8 @@ async def evaluate_answers(request: EvaluationRequest):
         
         for question_data in request.questions:
             # Generate correct answer using LLM
-            correct_answer = generate_answer_groq(question_data.question, question_data.options)
-            
+            correct_answer = generate_answer_groq(question_data.question)
+            print(f"Generated answer for question: {question_data.question[:50]}... -> {correct_answer}")
             if not correct_answer:
                 raise HTTPException(status_code=500, detail=f"Failed to generate answer for question: {question_data.question[:50]}...")
             
@@ -455,7 +473,6 @@ async def evaluate_answers(request: EvaluationRequest):
                 "user_answer": question_data.answer,
                 "correct_answer": correct_answer,
                 "is_correct": is_correct,
-                "options": question_data.options
             }
             results.append(result)
         
@@ -560,6 +577,271 @@ async def get_questions():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.post("/greeting")
+async def create_greeting(request: GreetingRequest):
+    """
+    Create a greeting for the user and initialize interview session
+    Returns JSON with greeting text and audio data
+    """
+    try:
+        # Generate unique session ID
+        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+        
+        # Create session folder
+        session_path = create_session_folder(session_id)
+        
+        # Initialize session data
+        sessions[session_id] = {
+            "user_name": request.user_name,
+            "user_role": request.user_role,
+            "session_path": session_path,
+            "previous_answers": [],
+            "current_question": 0,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        # Generate greeting text
+        greeting_text = (
+            f"Hello {request.user_name}, welcome to your mock interview "
+            f"for the role of {request.user_role}. Let's get started!"
+        )
+        
+        # Generate greeting audio
+        greeting_audio_path = os.path.join(session_path, "ai_greeting.wav")
+        speak_text(greeting_text, greeting_audio_path)
+        
+        # Check if file was created
+        if not os.path.exists(greeting_audio_path):
+            raise HTTPException(status_code=500, detail="Failed to generate greeting audio")
+        
+        # Read audio file and encode as base64
+        with open(greeting_audio_path, "rb") as audio_file:
+            audio_data = base64.b64encode(audio_file.read()).decode('utf-8')
+        
+        # Return JSON response
+        return {
+            "session_id": session_id,
+            "greeting_text": greeting_text,
+            "audio_data": audio_data,
+            "audio_format": "wav",
+            "message": "Greeting created successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create greeting: {str(e)}")
+
+@app.post("/ai-response")
+async def generate_ai_response(request: AIResponseRequest):
+    """
+    Generate AI question based on session context and previous answers
+    Returns JSON with question text and audio data
+    """
+    try:
+        # Get session data
+        session = get_session(request.session_id)
+        session_path = session["session_path"]
+        
+        # Update question number
+        if request.question_number:
+            session["current_question"] = request.question_number
+        else:
+            session["current_question"] += 1
+        
+        current_question_num = session["current_question"]
+        
+        # Add user transcript to previous answers if provided
+        if request.user_transcript and request.user_transcript.strip():
+            # Store both question and answer as a pair
+            if len(session["previous_answers"]) >= current_question_num - 1:
+                # If we have a previous question, pair it with this answer
+                session["previous_answers"].append({
+                    "question_number": current_question_num - 1,
+                    "answer": request.user_transcript.strip()
+                })
+            else:
+                session["previous_answers"].append({
+                    "question_number": current_question_num - 1,
+                    "answer": request.user_transcript.strip()
+                })
+        
+        # Generate question context with better structure
+        difficulty_levels = ["basic", "intermediate", "moderate", "advanced", "expert"]
+        difficulty = difficulty_levels[min(current_question_num - 1, 4)]
+        
+        # Build context for question generation
+        previous_qa_context = ""
+        if session["previous_answers"]:
+            previous_qa_context = "Previous Q&A in this interview:\n"
+            for i, qa in enumerate(session["previous_answers"][-3:], 1):  # Last 3 Q&As
+                previous_qa_context += f"Q{qa.get('question_number', i)}: [Previous question]\n"
+                previous_qa_context += f"A{qa.get('question_number', i)}: {qa['answer']}\n\n"
+        
+        context = (
+            f"You are conducting a mock interview for a {session['user_role']} position. "
+            f"This is question #{current_question_num}. "
+            f"Generate a {difficulty} level technical question that:\n"
+            f"1. Is different from any previous questions\n"
+            f"2. Builds upon or relates to the candidate's previous answers if applicable\n"
+            f"3. Is appropriate for a {session['user_role']} role\n"
+            f"4. Tests {difficulty} level knowledge\n\n"
+            f"{previous_qa_context}"
+            f"Generate ONLY the next interview question, no additional text or formatting."
+        )
+        
+        # Generate question with improved prompt
+        question_text = generate_question(context)
+        
+        # Clean up the question text
+        question_text = question_text.strip()
+        if not question_text:
+            question_text = f"Can you tell me about your experience with {session['user_role']} technologies?"
+        
+        # Store the generated question in session for future reference
+        if "generated_questions" not in session:
+            session["generated_questions"] = []
+        
+        session["generated_questions"].append({
+            "question_number": current_question_num,
+            "question": question_text,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        # Generate question audio
+        question_audio_path = os.path.join(session_path, f"ai_question_{current_question_num}.wav")
+        speak_text(question_text, question_audio_path)
+        
+        # Check if file was created
+        if not os.path.exists(question_audio_path):
+            raise HTTPException(status_code=500, detail="Failed to generate question audio")
+        
+        # Update session
+        sessions[request.session_id] = session
+        
+        # Read audio file and encode as base64
+        with open(question_audio_path, "rb") as audio_file:
+            audio_data = base64.b64encode(audio_file.read()).decode('utf-8')
+        
+        # Return JSON response with both text and audio
+        return {
+            "session_id": request.session_id,
+            "question_number": current_question_num,
+            "question_text": question_text,
+            "audio_data": audio_data,
+            "audio_format": "wav",
+            "difficulty_level": difficulty,
+            "message": "Question generated successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate AI response: {str(e)}")
+@app.post("/analyze-answer", response_model=AnalysisResponse)
+async def analyze_user_answer(
+    session_id: str = Form(...),
+    question_number: int = Form(...),
+    audio_file: UploadFile = File(...)
+):
+    """
+    Analyze user's audio answer - transcribe and extract features
+    """
+    try:
+        # Get session data
+        session = get_session(session_id)
+        session_path = session["session_path"]
+        
+        # Save uploaded audio file
+        audio_filename = f"user_answer_{question_number}.wav"
+        audio_path = os.path.join(session_path, audio_filename)
+        
+        with open(audio_path, "wb") as buffer:
+            content = await audio_file.read()
+            buffer.write(content)
+        
+        # Transcribe audio
+        transcript = ""
+        try:
+            transcript = transcribe_audio(audio_path)
+            # Save transcript
+            with open(os.path.join(session_path, f"transcript_{question_number}.txt"), "w") as f:
+                f.write(transcript)
+        except Exception as e:
+            print(f"Transcription failed: {e}")
+        
+        # Extract voice features and analyze emotion
+        nervousness_score = None
+        features_dict = None
+        try:
+            features = extract_voice_features(audio_path)
+            rel_features = compute_relative_features(features)
+            nervousness_score = score_nervousness_relative(rel_features)
+            features_dict = {
+                "raw_features": features,
+                "relative_features": rel_features
+            }
+        except Exception as e:
+            print(f"Feature extraction failed: {e}")
+        
+        return AnalysisResponse(
+            transcript=transcript,
+            nervousness_score=nervousness_score,
+            features=features_dict
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze answer: {str(e)}")
+
+@app.get("/audio/{session_id}/{filename}")
+async def get_audio_file(session_id: str, filename: str):
+    """
+    Serve audio files for playback
+    """
+    try:
+        session = get_session(session_id)
+        audio_path = os.path.join(session["session_path"], filename)
+        
+        if not os.path.exists(audio_path):
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        
+        return FileResponse(
+            path=audio_path,
+            media_type="audio/wav",
+            filename=filename,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to serve audio: {str(e)}")
+
+@app.get("/session/{session_id}")
+async def get_session_info(session_id: str):
+    """
+    Get session information
+    """
+    try:
+        session = get_session(session_id)
+        return {
+            "session_id": session_id,
+            "user_name": session["user_name"],
+            "user_role": session["user_role"],
+            "current_question": session["current_question"],
+            "total_answers": len(session["previous_answers"]),
+            "created_at": session["created_at"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get session info: {str(e)}")
+
+@app.delete("/session/{session_id}")
+async def end_session(session_id: str):
+    """
+    End interview session and cleanup
+    """
+    try:
+        if session_id in sessions:
+            del sessions[session_id]
+        return {"message": "Session ended successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to end session: {str(e)}")
+
 
 # Health check endpoint
 @app.get("/health")
