@@ -15,6 +15,7 @@ import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
 from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, SessionScoreResponse, TechnicalGenerationInput, TranscriptionResponse, UserId, UserProfileRequest
+from app.dsa_coding.boiler_plate import generate_boilerplates_async
 from app.dsa_coding.scraper_3 import scrape_random_questions
 from app.interview.emotion_detector import score_nervousness_relative
 from app.interview.feature_extract import compute_relative_features, extract_voice_features
@@ -557,32 +558,50 @@ async def evaluate_technical_answers(request: EvaluationRequestTechnical):
 @app.get("/questions")
 async def get_questions():
     """
-    Get random LeetCode questions and return as JSON
-    Scrapes 2 Easy + 2 Medium + 1 Hard questions
+    Get random LeetCode questions with generated boilerplates and return as JSON
+    Processes questions from all_random_questions.json and generates code templates
     
     Returns:
-        dict: Questions data as JSON
+        dict: Structured questions data with boilerplates as JSON
     """
     try:
-        # Check if saved file exists first
-        file_paths = [
-            "./app/dsa_coding/random_leetcode_questions.json",
-            "random_leetcode_questions.json"
+        # Check if processed file exists first
+        processed_file_paths = [
+            "./app/dsa_coding/processed_questions_with_boilerplates.json",
+            "processed_questions_with_boilerplates.json"
         ]
         
-        # Try to load existing file
-        for file_path in file_paths:
+        # Try to load existing processed file
+        for file_path in processed_file_paths:
             if os.path.exists(file_path):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
         
-        # If no file exists, scrape new questions
-        results = scrape_random_questions()
+        # If no processed file exists, generate boilerplates
+        input_file_paths = [
+            "./app/dsa_coding/all_random_questions.json",
+            "all_random_questions.json"
+        ]
         
-        if 'error' in results:
-            raise HTTPException(status_code=500, detail=f"Failed to scrape questions: {results['error']}")
+        input_file = None
+        for file_path in input_file_paths:
+            if os.path.exists(file_path):
+                input_file = file_path
+                break
         
-        return results
+        if not input_file:
+            raise HTTPException(status_code=404, detail="Source questions file not found")
+        
+        # Generate structured output with boilerplates
+        structured_output = await generate_boilerplates_async(input_file)
+        
+        # Save the processed output for future requests
+        save_path = "./app/dsa_coding/processed_questions_with_boilerplates.json"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, 'w', encoding='utf-8') as f:
+            json.dump(structured_output, f, indent=2)
+        
+        return structured_output
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
