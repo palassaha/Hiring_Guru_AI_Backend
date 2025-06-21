@@ -4,7 +4,8 @@ import json
 import uuid
 from datetime import datetime
 from typing import Any, List, Literal, Optional
-from fastapi import FastAPI, HTTPException, Response, UploadFile, File
+from bson import ObjectId
+from fastapi import FastAPI, HTTPException, Response, UploadFile, File, logger
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import openai
@@ -13,11 +14,12 @@ from typing import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
-from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TranscriptionResponse
+from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TechnicalGenerationInput, TranscriptionResponse
 from app.dsa_coding.scraper_3 import scrape_random_questions
 from app.interview.emotion_detector import score_nervousness_relative
 from app.interview.feature_extract import compute_relative_features, extract_voice_features
 from app.interview.llm_groq import generate_question
+from app.mongo import InterviewDataManager, MongoDBHandler
 from app.technical.results import generate_answer_groq as generate_answer_groq_technical , generate_detailed_feedback as generate_detailed_feedback_technical, is_answer_correct as is_answer_correct_technical
 from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
@@ -29,13 +31,22 @@ from app.technical.llm import process_questions as process_technical_questions
 from app.screening.screening import JobScreeningSystem
 from app.technical.scraper import TechnicalQuestionScraper
 
-# Load environment variables
+
 load_dotenv()
 
 # Configure OpenAI to use Groq's endpoint
 openai.api_key = os.getenv("GROQ_API_KEY")
 openai.api_base = "https://api.groq.com/openai/v1"
+dburl = os.getenv("DATABASE_URL")  # Default to local MongoDB if not set
+db_handler = MongoDBHandler(
+    connection_string=dburl,  # Update with your connection string
+    database_name="h4b-2025"
+)
 
+# Connect to MongoDB
+if not db_handler.connect():
+    raise Exception("Failed to connect to MongoDB")
+interview_manager = InterviewDataManager(db_handler)
 # Initialize FastAPI app
 app = FastAPI(
     title="Communication Practice API",
@@ -44,105 +55,6 @@ app = FastAPI(
 )
 
 # Pydantic models for request/response
-class BasicSentencesRequest(BaseModel):
-    count: int = 10
-    difficulty: str = "beginner"
-
-class BasicSentencesResponse(BaseModel):
-    sentences: List[str]
-    session_id: str
-
-class AudioRequest(BaseModel):
-    sentence: str
-    session_id: Optional[str] = None
-
-class ComprehensionRequest(BaseModel):
-    topic: str = "daily life"
-    difficulty: str = "intermediate"
-    question_count: int = 5
-
-class MultipleChoiceQuestion(BaseModel):
-    question: str
-    options: List[str]
-    correct_answer: str
-
-class ComprehensionResponse(BaseModel):
-    passage: str
-    multiple_choice: List[MultipleChoiceQuestion]
-    short_answer: List[str]
-    session_id: str
-
-class TranscriptionResponse(BaseModel):
-    transcription: str
-
-class PronunciationCheckRequest(BaseModel):
-   original_sentence: str
-   audio_file: Optional[str] = None  
-   transcribed_text: Optional[str] = None  
-
-class PronunciationCheckResponse(BaseModel):
-   similarity_percentage: float
-   original_text: str
-   spoken_text: str
-   feedback: str
-
-class ScreeningRequest(BaseModel):
-    company_with_role: str
-
-class AssessmentRequest(BaseModel):
-    company_with_role: str
-    questions: List[Dict[str, Any]]
-    responses: Dict[int, str]
-
-class ScreeningResponse(BaseModel):
-    company: str
-    role: str
-    role_title: str
-    questions: List[Dict[str, Any]]
-    scoring_criteria: Dict[str, int]
-    generated_at: str
-    total_questions: int
-
-class AssessmentResponse(BaseModel):
-    overall_score: int
-    category_scores: Dict[str, int]
-    strengths: List[str]
-    areas_for_improvement: List[str]
-    detailed_feedback: Dict[str, str]
-    recommendation: str
-    recommendation_reason: str
-    next_steps: List[str]
-    red_flags: List[str]
-    standout_responses: List[str]
-    assessment_date: str
-    company: str
-    role: str
-    role_title: str
-    total_responses: int
-    response_completion_rate: float
-
-class GenerateAptitudeQuestionsRequestModel(BaseModel):
-    roundType: str  # "APTITUDE", etc.
-    difficulty: str  # "easy", "medium", "hard"
-    questionCount: int
-    category: Optional[str] = None
-    duration: int
-    type: str  # "MCQ", "SUBJECTIVE", etc.
-
-
-class GenerateAptitudeQuestionsRequest(BaseModel):
-    questions_with_answers: List[dict]
-
-class TechnicalGenerationInput(BaseModel):
-    roundType: str
-    difficulty: str
-    questionCount: int
-    category: Optional[str]
-    duration: int
-    type: str
-
-class GenerateTechnicalQuestionsRequest(BaseModel):
-    questions_with_answers: List[dict]
 
 # Initialize generator
 generator = CommunicationQuestionGenerator()
@@ -685,18 +597,14 @@ async def create_greeting(request: GreetingRequest):
         # Generate unique session ID
         session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
         
+        # Generate round_id if not provided
+        if not request.round_id:
+            round_id = str(ObjectId())
+        else:
+            round_id = request.round_id
+        
         # Create session folder
         session_path = create_session_folder(session_id)
-        
-        # Initialize session data
-        sessions[session_id] = {
-            "user_name": request.user_name,
-            "user_role": request.user_role,
-            "session_path": session_path,
-            "previous_answers": [],
-            "current_question": 0,
-            "created_at": datetime.now().isoformat()
-        }
         
         # Generate greeting text
         greeting_text = (
@@ -712,6 +620,34 @@ async def create_greeting(request: GreetingRequest):
         if not os.path.exists(greeting_audio_path):
             raise HTTPException(status_code=500, detail="Failed to generate greeting audio")
         
+        # MONGODB INTEGRATION: Store greeting in database
+        auth_token = f"auth_{str(uuid.uuid4())[:16]}"  # Generate auth token
+        db_success = interview_manager.handle_greeting_creation(
+            session_id=session_id,
+            user_name=request.user_name,
+            user_role=request.user_role,
+            greeting_text=greeting_text,
+            round_id=round_id,
+            auth_token=auth_token,
+            greeting_audio_path=greeting_audio_path
+        )
+        
+        if not db_success:
+            logger.warning(f"Failed to store greeting in database for session {session_id}")
+        
+        # Initialize session data (keep existing in-memory storage for compatibility)
+        sessions[session_id] = {
+            "user_name": request.user_name,
+            "user_role": request.user_role,
+            "session_path": session_path,
+            "previous_answers": [],
+            "current_question": 0,
+            "created_at": datetime.now().isoformat(),
+            "round_id": round_id,
+            "auth_token": auth_token,
+            "db_stored": db_success
+        }
+        
         # Read audio file and encode as base64
         with open(greeting_audio_path, "rb") as audio_file:
             audio_data = base64.b64encode(audio_file.read()).decode('utf-8')
@@ -719,10 +655,12 @@ async def create_greeting(request: GreetingRequest):
         # Return JSON response
         return {
             "session_id": session_id,
+            "round_id": round_id,
             "greeting_text": greeting_text,
             "audio_data": audio_data,
             "audio_format": "wav",
-            "message": "Greeting created successfully"
+            "message": "Greeting created successfully",
+            "db_stored": db_success
         }
         
     except Exception as e:
@@ -749,18 +687,10 @@ async def generate_ai_response(request: AIResponseRequest):
         
         # Add user transcript to previous answers if provided
         if request.user_transcript and request.user_transcript.strip():
-            # Store both question and answer as a pair
-            if len(session["previous_answers"]) >= current_question_num - 1:
-                # If we have a previous question, pair it with this answer
-                session["previous_answers"].append({
-                    "question_number": current_question_num - 1,
-                    "answer": request.user_transcript.strip()
-                })
-            else:
-                session["previous_answers"].append({
-                    "question_number": current_question_num - 1,
-                    "answer": request.user_transcript.strip()
-                })
+            session["previous_answers"].append({
+                "question_number": current_question_num - 1,
+                "answer": request.user_transcript.strip()
+            })
         
         # Generate question context with better structure
         difficulty_levels = ["basic", "intermediate", "moderate", "advanced", "expert"]
@@ -770,7 +700,7 @@ async def generate_ai_response(request: AIResponseRequest):
         previous_qa_context = ""
         if session["previous_answers"]:
             previous_qa_context = "Previous Q&A in this interview:\n"
-            for i, qa in enumerate(session["previous_answers"][-3:], 1):  # Last 3 Q&As
+            for i, qa in enumerate(session["previous_answers"][-3:], 1):
                 previous_qa_context += f"Q{qa.get('question_number', i)}: [Previous question]\n"
                 previous_qa_context += f"A{qa.get('question_number', i)}: {qa['answer']}\n\n"
         
@@ -812,7 +742,21 @@ async def generate_ai_response(request: AIResponseRequest):
         if not os.path.exists(question_audio_path):
             raise HTTPException(status_code=500, detail="Failed to generate question audio")
         
+        # MONGODB INTEGRATION: Store conversation in database
+        db_success = interview_manager.handle_ai_response(
+            session_id=request.session_id,
+            question_text=question_text,
+            question_number=current_question_num,
+            difficulty_level=difficulty,
+            user_transcript=request.user_transcript,
+            question_audio_path=question_audio_path
+        )
+        
+        if not db_success:
+            logger.warning(f"Failed to store AI response in database for session {request.session_id}")
+        
         # Update session
+        session["db_stored"] = db_success
         sessions[request.session_id] = session
         
         # Read audio file and encode as base64
@@ -827,11 +771,88 @@ async def generate_ai_response(request: AIResponseRequest):
             "audio_data": audio_data,
             "audio_format": "wav",
             "difficulty_level": difficulty,
-            "message": "Question generated successfully"
+            "message": "Question generated successfully",
+            "db_stored": db_success
         }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate AI response: {str(e)}")
+
+# Additional endpoints for MongoDB operations
+@app.get("/conversation/{session_id}")
+async def get_conversation_history(session_id: str):
+    """Get conversation history for a session from MongoDB"""
+    try:
+        conversation = interview_manager.interview_collection.get_conversation_history(session_id)
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Session not found or no conversation history")
+        
+        return {
+            "session_id": session_id,
+            "conversation": conversation,
+            "total_messages": len(conversation)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve conversation: {str(e)}")
+
+@app.get("/session/{session_id}")
+async def get_session_details(session_id: str):
+    """Get complete session details from MongoDB"""
+    try:
+        session = interview_manager.interview_collection.get_interview_session(session_id)
+        
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return session
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve session: {str(e)}")
+
+@app.post("/session/{session_id}/scores")
+async def update_session_scores(session_id: str, scores: dict):
+    """Update analysis scores for a session"""
+    try:
+        success = interview_manager.interview_collection.update_session_scores(
+            session_id=session_id,
+            sentiment_analysis=scores.get("sentiment_analysis"),
+            confidence_score=scores.get("confidence_score"),
+            communication_score=scores.get("communication_score"),
+            technical_score=scores.get("technical_score")
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {"message": "Scores updated successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update scores: {str(e)}")
+
+@app.post("/session/{session_id}/finalize")
+async def finalize_interview_session(session_id: str, audio_recording_url: str = None):
+    """Finalize interview session"""
+    try:
+        success = interview_manager.interview_collection.finalize_session(
+            session_id=session_id,
+            audio_recording_url=audio_recording_url
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {"message": "Session finalized successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to finalize session: {str(e)}")
+
+# Cleanup function for graceful shutdown
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close MongoDB connection on app shutdown"""
+    db_handler.close_connection()
 @app.post("/analyze-answer", response_model=AnalysisResponse)
 async def analyze_user_answer(
     session_id: str = Form(...),
