@@ -1200,37 +1200,62 @@ async def end_session(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to end session: {str(e)}")
 
-@app.post("/generate-assessment", response_model=AssessmentResponse)
+@app.post("/generate-assessment")
 async def generate_assessment(
-    user_profile: UserId,
-    api_key: str = os.getenv("GEMINI_API_KEY")
+    id: str = None,
 ):
     """
     Generate a custom assessment based on user profile data
     
     Args:
-        user_profile: User profile information including skills, target role, etc.
-    
+        id: User ID to fetch profile information
+        
     Returns:
         Generated assessment with rounds and configuration
     """
     async with httpx.AsyncClient() as client:
         try:
-            # Convert Pydantic model to dictionary
-            response = await client.get(f"http://localhost:5000/api/user/analysis/details/${user_profile.id}")
-            user_data = response.model_dump()
+            # Fetch user profile data
+            response = await client.get(f"http://localhost:5000/api/user/analysis/details/{id}")
+            response.raise_for_status()
+            
+            user_profile = response.json()
+            print(f"Received user profile: {user_profile}")
+            
+            # Create UserProfileRequest instance
+            user = UserProfileRequest(**user_profile)
+            print(f"Validated user profile: {user}")
+            
+            user_data = user.model_dump()
+            print(f"User data for assessment generation: {user_data}")
             
             # Initialize the assessment generator
-            generator = AssessmentGenerator(api_key)
+            generator = AssessmentGenerator(api_key=os.getenv("GEMINI_API_KEY"))
             
             # Generate the assessment
             assessment_data = generator.generate_assessment(user_data)
             
-            # Return the structured response
-            data = AssessmentResponse(**assessment_data)
-            return data
-        
-        
+            # Add userId field to assessment_data
+            assessment_data["userId"] = id
+            
+            #asses_data = AssessmentResponse(**assessment_data)
+            print("Assessment data validated successfully",assessment_data)
+            
+            # Send the assessment data with userId to the final API
+            res = await client.post(
+                "http://localhost:5000/api/custom-assessments",
+                json=assessment_data
+            )
+            res.raise_for_status()
+            print(f"Assessment successfully created: {res.json()}")
+            
+            return res.json()
+                    
+        except httpx.HTTPError as he:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to fetch user data: {str(he)}"
+            )
         except ValueError as ve:
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
@@ -1238,7 +1263,6 @@ async def generate_assessment(
                 status_code=500, 
                 detail=f"Failed to generate assessment: {str(e)}"
             )
-
 @app.post("/generate-assessment-raw")
 async def generate_assessment_raw(
     user_profile: UserProfileRequest,

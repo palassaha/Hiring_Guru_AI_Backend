@@ -229,7 +229,8 @@ class SessionAnalysisRequest(BaseModel):
     session_id: str
 
 class UserProfileRequest(BaseModel):
-    userId: str = Field(..., description="Unique user identifier")
+    # Use 'id' instead of 'userId' to match the API response
+    id: str = Field(..., description="Unique user identifier")
     skills: List[str] = Field(default=[], description="List of user skills")
     contributionFreq: str = Field(default="medium", description="Contribution frequency")
     projectsCount: int = Field(default=0, description="Number of projects")
@@ -240,6 +241,9 @@ class UserProfileRequest(BaseModel):
     dreamCompanies: List[str] = Field(default=[], description="Dream companies list")
     skillGaps: List[str] = Field(default=[], description="Identified skill gaps")
     careerPath: List[str] = Field(default=[], description="Career path progression")
+    createdAt: str = Field(..., description="Profile creation timestamp")
+    # Make updatedAt optional since it might not be in the response
+    updatedAt: Optional[str] = Field(default=None, description="Profile last updated timestamp")
 
 class RoundResponse(BaseModel):
     roundType: str
