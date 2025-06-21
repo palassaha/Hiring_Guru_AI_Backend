@@ -14,7 +14,7 @@ from typing import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
-from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, SessionScoreResponse, TechnicalGenerationInput, TranscriptionResponse, UserProfileRequest
+from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, SessionScoreResponse, TechnicalGenerationInput, TranscriptionResponse, UserId, UserProfileRequest
 from app.dsa_coding.scraper_3 import scrape_random_questions
 from app.interview.emotion_detector import score_nervousness_relative
 from app.interview.feature_extract import compute_relative_features, extract_voice_features
@@ -32,7 +32,7 @@ from app.aptitude.llm import process_questions
 from app.technical.llm import process_questions as process_technical_questions
 from app.screening.screening import JobScreeningSystem
 from app.technical.scraper import TechnicalQuestionScraper
-
+import httpx
 
 load_dotenv()
 
@@ -1202,7 +1202,7 @@ async def end_session(session_id: str):
 
 @app.post("/generate-assessment", response_model=AssessmentResponse)
 async def generate_assessment(
-    user_profile: UserProfileRequest,
+    user_profile: UserId,
     api_key: str = os.getenv("GEMINI_API_KEY")
 ):
     """
@@ -1214,26 +1214,30 @@ async def generate_assessment(
     Returns:
         Generated assessment with rounds and configuration
     """
-    try:
-        # Convert Pydantic model to dictionary
-        user_data = user_profile.model_dump()
+    async with httpx.AsyncClient() as client:
+        try:
+            # Convert Pydantic model to dictionary
+            response = await client.get(f"http://localhost:5000/api/user/analysis/details/${user_profile.id}")
+            user_data = response.model_dump()
+            
+            # Initialize the assessment generator
+            generator = AssessmentGenerator(api_key)
+            
+            # Generate the assessment
+            assessment_data = generator.generate_assessment(user_data)
+            
+            # Return the structured response
+            data = AssessmentResponse(**assessment_data)
+            return data
         
-        # Initialize the assessment generator
-        generator = AssessmentGenerator(api_key)
         
-        # Generate the assessment
-        assessment_data = generator.generate_assessment(user_data)
-        
-        # Return the structured response
-        return AssessmentResponse(**assessment_data)
-        
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to generate assessment: {str(e)}"
-        )
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to generate assessment: {str(e)}"
+            )
 
 @app.post("/generate-assessment-raw")
 async def generate_assessment_raw(
