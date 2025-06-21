@@ -1,10 +1,11 @@
 from datetime import datetime
 import json
 import os
+import re
 from typing import Any, List
 from dotenv import load_dotenv
 import openai
-from sympy import Dict, re
+from typing import Dict
 load_dotenv()
 
 # Configure OpenAI to use Groq's endpoint
@@ -318,11 +319,22 @@ class JobScreeningSystem:
             qa_pairs = []
             for question in questions:
                 qid = question["id"]
-                response = responses.get(qid, "No response provided")
+                
+                # Handle both flat and nested response formats
+                response_text = "No response provided"
+                if qid in responses:
+                    response_data = responses[qid]
+                    if isinstance(response_data, dict) and "response" in response_data:
+                        response_text = response_data["response"]
+                    elif isinstance(response_data, str):
+                        response_text = response_data
+                    elif response_data:  # Any other truthy value
+                        response_text = str(response_data)
+                
                 qa_pairs.append({
                     "question": question["question"],
                     "category": question["category"], 
-                    "response": response
+                    "response": response_text
                 })
             
             prompt = f"""
@@ -397,19 +409,48 @@ class JobScreeningSystem:
             
             assessment = json.loads(content)
             
+            # Calculate response completion rate properly
+            total_questions = len(questions)
+            completed_responses = 0
+            
+            for question in questions:
+                qid = question["id"]
+                if qid in responses:
+                    response_data = responses[qid]
+                    if isinstance(response_data, dict) and "response" in response_data:
+                        if response_data["response"] and response_data["response"].strip():
+                            completed_responses += 1
+                    elif isinstance(response_data, str) and response_data.strip():
+                        completed_responses += 1
+            
             # Add metadata
             assessment["assessment_date"] = datetime.now().isoformat()
             assessment["company"] = company
             assessment["role"] = role
             assessment["role_title"] = role_title
-            assessment["total_responses"] = len(responses)
-            assessment["response_completion_rate"] = len([r for r in responses.values() if r and r.strip()]) / len(questions) * 100
+            assessment["total_responses"] = completed_responses
+            assessment["response_completion_rate"] = (completed_responses / total_questions * 100) if total_questions > 0 else 0
             
             return assessment
             
         except Exception as e:
             print(f"Error assessing responses: {str(e)}")
             company, role, role_title = self.parse_company_role(company_with_role)
+            
+            # Calculate basic stats for error case
+            total_questions = len(questions)
+            completed_responses = 0
+            
+            for question in questions:
+                qid = question["id"]
+                if qid in responses:
+                    response_data = responses[qid]
+                    if isinstance(response_data, dict) and "response" in response_data:
+                        if response_data["response"] and response_data["response"].strip():
+                            completed_responses += 1
+                    elif isinstance(response_data, str) and response_data.strip():
+                        completed_responses += 1
+            
             # Return basic assessment
             return {
                 "overall_score": 50,
@@ -437,6 +478,6 @@ class JobScreeningSystem:
                 "company": company,
                 "role": role,
                 "role_title": role_title,
-                "total_responses": len(responses),
-                "response_completion_rate": 0
+                "total_responses": completed_responses,
+                "response_completion_rate": (completed_responses / total_questions * 100) if total_questions > 0 else 0
             }
