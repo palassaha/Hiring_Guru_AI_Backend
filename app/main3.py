@@ -2,12 +2,13 @@ import os
 import json
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from fastapi import FastAPI, HTTPException, Response, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import openai
 from dotenv import load_dotenv
+from sympy import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.scraper import AptitudeQuestionScraper
@@ -16,6 +17,7 @@ from app.communication.comms import CommunicationQuestionGenerator
 from app.interview.tts import speak_text
 from app.interview.whisper_groq import transcribe_audio
 from app.aptitude.llm import process_questions
+from app.screening.screening import JobScreeningSystem
 
 # Load environment variables
 load_dotenv()
@@ -74,6 +76,41 @@ class PronunciationCheckResponse(BaseModel):
    spoken_text: str
    feedback: str
 
+class ScreeningRequest(BaseModel):
+    company_with_role: str
+
+class AssessmentRequest(BaseModel):
+    company_with_role: str
+    questions: List[Dict[str, Any]]
+    responses: Dict[int, str]
+
+class ScreeningResponse(BaseModel):
+    company: str
+    role: str
+    role_title: str
+    questions: List[Dict[str, Any]]
+    scoring_criteria: Dict[str, int]
+    generated_at: str
+    total_questions: int
+
+class AssessmentResponse(BaseModel):
+    overall_score: int
+    category_scores: Dict[str, int]
+    strengths: List[str]
+    areas_for_improvement: List[str]
+    detailed_feedback: Dict[str, str]
+    recommendation: str
+    recommendation_reason: str
+    next_steps: List[str]
+    red_flags: List[str]
+    standout_responses: List[str]
+    assessment_date: str
+    company: str
+    role: str
+    role_title: str
+    total_responses: int
+    response_completion_rate: float
+
 class GenerateAptitudeQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
 # Communication Question Generator Class
@@ -81,6 +118,7 @@ class GenerateAptitudeQuestionsRequest(BaseModel):
 # Initialize generator
 generator = CommunicationQuestionGenerator()
 pronunciation_scorer = PronunciationScorer()
+screening= JobScreeningSystem()
 
 
 # Create directories for storing files
@@ -391,6 +429,43 @@ async def generate_aptitude_questions():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
 
+@app.post("/generate-questions", response_model=ScreeningResponse)
+async def generate_screening_questions(request: ScreeningRequest):
+    """
+    Generate screening questions for any company and role
+    
+    Example: {"company_with_role": "Amazon SDE 1"}
+    """
+    try:
+        questions_data = await screening.generate_screening_questions(request.company_with_role)
+        return ScreeningResponse(**questions_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating questions: {str(e)}")
+
+@app.post("/assess-responses", response_model=AssessmentResponse)
+async def assess_candidate_responses(request: AssessmentRequest):
+    """
+    Assess candidate responses and provide detailed feedback
+    
+    Example:
+    {
+        "company_with_role": "Amazon SDE 1",
+        "questions": [...], // questions from generate-questions endpoint
+        "responses": {
+            1: "I have 2 years of experience...",
+            2: "I'm interested in Amazon because..."
+        }
+    }
+    """
+    try:
+        assessment = await screening.assess_candidate_responses(
+            request.company_with_role, 
+            request.questions, 
+            request.responses
+        )
+        return AssessmentResponse(**assessment)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error assessing responses: {str(e)}")
 
 # Health check endpoint
 @app.get("/health")
