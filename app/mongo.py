@@ -448,5 +448,6 @@ class InterviewDataManager:
         except Exception as e:
             logger.error(f"Error handling AI response: {e}")
             return False
+    
 
 # Usage Example
