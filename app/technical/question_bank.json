@@ -1,0 +1,69 @@
+[
+    {
+        "question": "Which of the following computer language is used for artificial intelligence?",
+        "options": [
+            "FORTRAN",
+            "PROLOG",
+            "COBOL",
+            "None of the above"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "Which of the following is a database administrator's function?",
+        "options": [
+            "database design",
+            "backing up the database",
+            "performance monitoring",
+            "user coordination",
+            "All of the above"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "A station in a network forwards incoming packets by placing them on its shortest output queue. What routing algorithm is being used?",
+        "options": [
+            "hot potato routing",
+            "flooding",
+            "static routing",
+            "delta routing",
+            "None of the above"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "How many digits of the DNIC (Data Network Identification Code) identify the country?",
+        "options": [
+            "first three",
+            "first four",
+            "first five",
+            "first six",
+            "None of the above"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "Which will legally declare, construct, and initialize an array?",
+        "options": [
+            "3. Which will legally declare, construct, and initialize an array? int [] myList = {\"1\", \"2\", \"3\"}; int [] myList = (5, 8,",
+            "; int myList [] [] = {4,9,7,0}; int myList [] = {4, 3, 7};"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "Which is a valid keyword in java?",
+        "options": [
+            "interface",
+            "string",
+            "Float",
+            "unsigned"
+        ],
+        "answer": "",
+        "explanation": ""
+    }
+]
