@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from fastapi import FastAPI, HTTPException, Response, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 from typing import Dict
 import uvicorn
 from fastapi import Form
+from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
+from app.classes import AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateTechnicalQuestionsRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TranscriptionResponse
+from app.dsa_coding.scraper_3 import scrape_random_questions
+from app.technical.results import generate_answer_groq as generate_answer_groq_technical , generate_detailed_feedback as generate_detailed_feedback_technical, is_answer_correct as is_answer_correct_technical
 from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
 from app.communication.comms import CommunicationQuestionGenerator
@@ -477,7 +481,6 @@ async def generate_technical_questions():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
 
-
 @app.post("/generate-questions", response_model=ScreeningResponse)
 async def generate_screening_questions(request: ScreeningRequest):
     """
@@ -516,6 +519,139 @@ async def assess_candidate_responses(request: AssessmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error assessing responses: {str(e)}")
 
+@app.post("/evaluate-aptitude-answers", response_model=EvaluationResponse)
+async def evaluate_answers(request: EvaluationRequest):
+    """
+    Evaluate aptitude test answers using LLM-generated correct answers
+    """
+    try:
+        results = []
+        correct_answers = 0
+        
+        for question_data in request.questions:
+            # Generate correct answer using LLM
+            correct_answer = generate_answer_groq(question_data.question, question_data.options)
+            
+            if not correct_answer:
+                raise HTTPException(status_code=500, detail=f"Failed to generate answer for question: {question_data.question[:50]}...")
+            
+            # Check if user answer is correct
+            is_correct = is_answer_correct(question_data.answer, correct_answer)
+            
+            if is_correct:
+                correct_answers += 1
+            
+            result = {
+                "question": question_data.question,
+                "user_answer": question_data.answer,
+                "correct_answer": correct_answer,
+                "is_correct": is_correct,
+                "options": question_data.options
+            }
+            results.append(result)
+        
+        # Calculate overall score
+        overall_score = (correct_answers / len(request.questions)) * 100 if request.questions else 0
+        
+        # Generate feedback
+        feedback = generate_detailed_feedback(results, overall_score)
+        
+        return EvaluationResponse(
+            overallScore=f"{round(overall_score, 1)}%",
+            feedback=feedback,
+            detailedResults=results
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing evaluation: {str(e)}")
+
+@app.post("/api/evaluate-technical-answers", response_model=EvaluationResponse)
+async def evaluate_technical_answers(request: EvaluationRequestTechnical):
+    """
+    Evaluate answers using LLM-generated correct answers for different question types
+    """
+    try:
+        results = []
+        correct_answers = 0
+        
+        for question_data in request.questions:
+            # Generate correct answer using LLM based on question type
+            correct_answer = generate_answer_groq_technical(
+                question_data.question, 
+                question_data.options, 
+                request.question_type
+            )
+            
+            if not correct_answer:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to generate answer for question: {question_data.question[:50]}..."
+                )
+            
+            # Check if user answer is correct
+            is_correct = is_answer_correct_technical(question_data.answer, correct_answer)
+            
+            if is_correct:
+                correct_answers += 1
+            
+            result = {
+                "question": question_data.question,
+                "user_answer": question_data.answer,
+                "correct_answer": correct_answer,
+                "is_correct": is_correct,
+                "options": question_data.options
+            }
+            results.append(result)
+        
+        # Calculate overall score
+        overall_score = (correct_answers / len(request.questions)) * 100 if request.questions else 0
+        
+        # Generate feedback based on question type
+        feedback = generate_detailed_feedback_technical(results, overall_score, request.question_type)
+        
+        return EvaluationResponse(
+            overallScore=f"{round(overall_score, 1)}%",
+            feedback=feedback,
+            detailedResults=results,
+            questionType=request.question_type
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing evaluation: {str(e)}")
+
+@app.get("/questions")
+async def get_questions():
+    """
+    Get random LeetCode questions and return as JSON
+    Scrapes 2 Easy + 2 Medium + 1 Hard questions
+    
+    Returns:
+        dict: Questions data as JSON
+    """
+    try:
+        # Check if saved file exists first
+        file_paths = [
+            "./app/dsa_coding/random_leetcode_questions.json",
+            "random_leetcode_questions.json"
+        ]
+        
+        # Try to load existing file
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        
+        # If no file exists, scrape new questions
+        results = scrape_random_questions()
+        
+        if 'error' in results:
+            raise HTTPException(status_code=500, detail=f"Failed to scrape questions: {results['error']}")
+        
+        return results
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -525,7 +661,6 @@ async def health_check():
         "api_key_configured": bool(openai.api_key)
     }
 
-# Get session info
 @app.get("/api/session/{session_id}")
 async def get_session_info(session_id: str):
     """Get information about a specific session"""
