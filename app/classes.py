@@ -216,3 +216,12 @@ class AnalysisResponse(BaseModel):
     transcript: str
     nervousness_score: Optional[float] = None
     features: Optional[dict] = None
+
+class SessionScoreResponse(BaseModel):
+    overallScore: int
+    scores: Dict[str, int]
+    feedback: Dict[str, Any]
+    analysis_timestamp: str
+
+class SessionAnalysisRequest(BaseModel):
+    session_id: str

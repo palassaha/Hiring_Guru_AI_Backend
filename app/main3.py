@@ -14,11 +14,12 @@ from typing import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
-from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TechnicalGenerationInput, TranscriptionResponse
+from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, SessionScoreResponse, TechnicalGenerationInput, TranscriptionResponse
 from app.dsa_coding.scraper_3 import scrape_random_questions
 from app.interview.emotion_detector import score_nervousness_relative
 from app.interview.feature_extract import compute_relative_features, extract_voice_features
 from app.interview.llm_groq import generate_question
+from app.interview.scores import SessionAnalyzer
 from app.mongo import InterviewDataManager, MongoDBHandler
 from app.technical.results import generate_answer_groq as generate_answer_groq_technical , generate_detailed_feedback as generate_detailed_feedback_technical, is_answer_correct as is_answer_correct_technical
 from app.aptitude.scraper import AptitudeQuestionScraper
@@ -60,7 +61,7 @@ app = FastAPI(
 generator = CommunicationQuestionGenerator()
 pronunciation_scorer = PronunciationScorer()
 screening= JobScreeningSystem()
-
+session_analyzer = SessionAnalyzer(groq_api_key=os.getenv("GROQ_API_KEY"))
 
 # Create directories for storing files
 os.makedirs("data/audio", exist_ok=True)
@@ -811,9 +812,89 @@ async def get_session_details(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve session: {str(e)}")
 
+@app.post("/api/session/{session_id}/analyze", response_model=SessionScoreResponse)
+async def analyze_session_scores(session_id: str):
+    """
+    Analyze complete session and generate comprehensive scores for:
+    - Confidence (1-100)
+    - Technical Knowledge (1-100) 
+    - Communication Skills (1-100)
+    - Fluency (1-100)
+    - Base Knowledge (1-100)
+    
+    Returns overall score and detailed feedback with strengths and improvements.
+    """
+    try:
+        # Get session data from MongoDB
+        session_data = interview_manager.interview_collection.get_interview_session(session_id)
+        
+        if not session_data:
+            # Try to get from in-memory sessions as fallback
+            if session_id in sessions:
+                memory_session = sessions[session_id]
+                # Convert in-memory session to expected format
+                session_data = {
+                    "session_id": session_id,
+                    "user_name": memory_session.get("user_name"),
+                    "user_role": memory_session.get("user_role"),
+                    "conversation": [],
+                    "created_at": memory_session.get("created_at")
+                }
+                
+                # Add previous answers as conversation
+                for answer in memory_session.get("previous_answers", []):
+                    session_data["conversation"].append({
+                        "type": "user_response",
+                        "transcript": answer.get("answer", ""),
+                        "question_number": answer.get("question_number", 1)
+                    })
+            else:
+                raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Analyze the session
+        analysis_result = session_analyzer.analyze_session_scores(session_data)
+        
+        # Create combined sentiment analysis with all scores
+        sentiment_analysis = {
+            "confidence": analysis_result["scores"]["confidence"],
+            "technical": analysis_result["scores"]["technical"],
+            "communication": analysis_result["scores"]["communication"],
+            "fluency": analysis_result["scores"]["fluency"],
+            "base_knowledge": analysis_result["scores"]["base_knowledge"]
+        }
+        
+        # Update the session with scores in MongoDB
+        # Only use parameters that the method accepts
+        success = interview_manager.interview_collection.update_session_scores(
+            session_id=session_id,
+            sentiment_analysis=sentiment_analysis,
+            confidence_score=analysis_result["scores"]["confidence"],
+            communication_score=analysis_result["scores"]["communication"],
+            technical_score=analysis_result["scores"]["technical"],
+            overall_score=analysis_result["overallScore"],
+            detailed_feedback=analysis_result["feedback"]
+        )
+        
+        if not success:
+            print(f"Warning: Failed to update scores in database for session {session_id}")
+        
+        return SessionScoreResponse(
+            overallScore=analysis_result["overallScore"],
+            scores=analysis_result["scores"],
+            feedback=analysis_result["feedback"],
+            analysis_timestamp=analysis_result["analysis_timestamp"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze session: {str(e)}")
 @app.post("/session/{session_id}/scores")
 async def update_session_scores(session_id: str, scores: dict):
-    """Update analysis scores for a session"""
+    """
+    [DEPRECATED] Use /api/session/{session_id}/analyze instead
+    Update analysis scores for a session
+    """
     try:
         success = interview_manager.interview_collection.update_session_scores(
             session_id=session_id,
@@ -826,11 +907,171 @@ async def update_session_scores(session_id: str, scores: dict):
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        return {"message": "Scores updated successfully"}
+        return {"message": "Scores updated successfully", "deprecated": True, "use_instead": f"/api/session/{session_id}/analyze"}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update scores: {str(e)}")
 
+# Additional endpoint to get detailed session analysis
+@app.get("/api/session/{session_id}/detailed-analysis")
+async def get_detailed_session_analysis(session_id: str):
+    """
+    Get comprehensive session analysis including:
+    - Individual parameter scores
+    - Conversation flow analysis
+    - Response quality metrics
+    - Improvement recommendations
+    """
+    try:
+        # Get session data
+        session_data = interview_manager.interview_collection.get_interview_session(session_id)
+        
+        if not session_data:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get conversation history
+        conversation = interview_manager.interview_collection.get_conversation_history(session_id)
+        
+        # Analyze session
+        analysis_result = session_analyzer.analyze_session_scores(session_data)
+        
+        # Additional metrics
+        total_responses = len([msg for msg in conversation if msg.get("type") == "user_response"])
+        avg_response_length = 0
+        if total_responses > 0:
+            total_length = sum(len(msg.get("transcript", "")) for msg in conversation if msg.get("type") == "user_response")
+            avg_response_length = total_length / total_responses
+        
+        return {
+            "session_info": {
+                "session_id": session_id,
+                "user_name": session_data.get("user_name"),
+                "user_role": session_data.get("user_role"),
+                "total_questions": len([msg for msg in conversation if msg.get("type") == "ai_question"]),
+                "total_responses": total_responses,
+                "average_response_length": round(avg_response_length, 2),
+                "session_duration": session_data.get("duration", "N/A")
+            },
+            "scores": analysis_result["scores"],
+            "overall_score": analysis_result["overallScore"],
+            "feedback": analysis_result["feedback"],
+            "conversation_summary": {
+                "total_exchanges": len(conversation) // 2,
+                "response_quality": "Analyzed" if total_responses > 0 else "No responses to analyze"
+            },
+            "analysis_timestamp": analysis_result["analysis_timestamp"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get detailed analysis: {str(e)}")
+
+# Endpoint to compare multiple sessions
+@app.post("/api/sessions/compare")
+async def compare_sessions(session_ids: List[str]):
+    """
+    Compare multiple interview sessions and provide comparative analysis
+    """
+    try:
+        if len(session_ids) < 2 or len(session_ids) > 5:
+            raise HTTPException(status_code=400, detail="Can compare 2-5 sessions at a time")
+        
+        comparisons = []
+        
+        for session_id in session_ids:
+            try:
+                session_data = interview_manager.interview_collection.get_interview_session(session_id)
+                if session_data:
+                    analysis = session_analyzer.analyze_session_scores(session_data)
+                    comparisons.append({
+                        "session_id": session_id,
+                        "user_name": session_data.get("user_name", "Unknown"),
+                        "user_role": session_data.get("user_role", "Unknown"),
+                        "overall_score": analysis["overallScore"],
+                        "scores": analysis["scores"],
+                        "created_at": session_data.get("created_at")
+                    })
+            except:
+                continue
+        
+        if len(comparisons) < 2:
+            raise HTTPException(status_code=400, detail="Need at least 2 valid sessions to compare")
+        
+        # Calculate comparative metrics
+        score_params = ["confidence", "technical", "communication", "fluency", "base_knowledge"]
+        param_averages = {}
+        for param in score_params:
+            param_averages[param] = sum(comp["scores"][param] for comp in comparisons) / len(comparisons)
+        
+        overall_avg = sum(comp["overall_score"] for comp in comparisons) / len(comparisons)
+        
+        return {
+            "session_comparisons": comparisons,
+            "comparative_analysis": {
+                "average_scores": param_averages,
+                "overall_average": round(overall_avg, 1),
+                "best_performer": max(comparisons, key=lambda x: x["overall_score"]),
+                "most_improved_areas": [param for param in score_params if param_averages[param] >= 75],
+                "needs_attention": [param for param in score_params if param_averages[param] < 60]
+            },
+            "comparison_timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compare sessions: {str(e)}")
+
+# Bulk analysis endpoint for multiple sessions
+@app.post("/api/sessions/bulk-analyze")
+async def bulk_analyze_sessions(session_ids: List[str]):
+    """
+    Analyze multiple sessions in bulk and return aggregated insights
+    """
+    try:
+        if len(session_ids) > 20:
+            raise HTTPException(status_code=400, detail="Maximum 20 sessions can be analyzed at once")
+        
+        results = []
+        failed_sessions = []
+        
+        for session_id in session_ids:
+            try:
+                session_data = interview_manager.interview_collection.get_interview_session(session_id)
+                if session_data:
+                    analysis = session_analyzer.analyze_session_scores(session_data)
+                    results.append({
+                        "session_id": session_id,
+                        "analysis": analysis
+                    })
+                    
+                    # Update database with scores
+                    interview_manager.interview_collection.update_session_scores(
+                        session_id=session_id,
+                        sentiment_analysis=analysis["scores"],
+                        confidence_score=analysis["scores"]["confidence"],
+                        communication_score=analysis["scores"]["communication"],
+                        technical_score=analysis["scores"]["technical"],
+                        overall_score=analysis["overallScore"],
+                        detailed_feedback=analysis["feedback"]
+                    )
+                else:
+                    failed_sessions.append(session_id)
+            except Exception as e:
+                failed_sessions.append(f"{session_id}: {str(e)}")
+        
+        return {
+            "successful_analyses": len(results),
+            "failed_sessions": failed_sessions,
+            "results": results,
+            "bulk_analysis_timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to perform bulk analysis: {str(e)}")
 @app.post("/session/{session_id}/finalize")
 async def finalize_interview_session(session_id: str, audio_recording_url: str = None):
     """Finalize interview session"""
