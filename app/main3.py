@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from typing import Dict
 import uvicorn
 from fastapi import Form
+from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
 from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
 from app.communication.comms import CommunicationQuestionGenerator
@@ -113,6 +114,18 @@ class AssessmentResponse(BaseModel):
     total_responses: int
     response_completion_rate: float
 
+class Question(BaseModel):
+    question: str
+    options: List[str]
+    answer: str
+
+class EvaluationRequest(BaseModel):
+    questions: List[Question]
+
+class EvaluationResponse(BaseModel):
+    overallScore: str
+    feedback: Dict[str, Any]
+    detailedResults: List[Dict[str, Any]]
 class GenerateAptitudeQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
 # Communication Question Generator Class
@@ -507,6 +520,51 @@ async def assess_candidate_responses(request: AssessmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error assessing responses: {str(e)}")
 
+@app.post("/evaluate-aptitude-answers", response_model=EvaluationResponse)
+async def evaluate_answers(request: EvaluationRequest):
+    """
+    Evaluate aptitude test answers using LLM-generated correct answers
+    """
+    try:
+        results = []
+        correct_answers = 0
+        
+        for question_data in request.questions:
+            # Generate correct answer using LLM
+            correct_answer = generate_answer_groq(question_data.question, question_data.options)
+            
+            if not correct_answer:
+                raise HTTPException(status_code=500, detail=f"Failed to generate answer for question: {question_data.question[:50]}...")
+            
+            # Check if user answer is correct
+            is_correct = is_answer_correct(question_data.answer, correct_answer)
+            
+            if is_correct:
+                correct_answers += 1
+            
+            result = {
+                "question": question_data.question,
+                "user_answer": question_data.answer,
+                "correct_answer": correct_answer,
+                "is_correct": is_correct,
+                "options": question_data.options
+            }
+            results.append(result)
+        
+        # Calculate overall score
+        overall_score = (correct_answers / len(request.questions)) * 100 if request.questions else 0
+        
+        # Generate feedback
+        feedback = generate_detailed_feedback(results, overall_score)
+        
+        return EvaluationResponse(
+            overallScore=f"{round(overall_score, 1)}%",
+            feedback=feedback,
+            detailedResults=results
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing evaluation: {str(e)}")
 # Health check endpoint
 @app.get("/health")
 async def health_check():
