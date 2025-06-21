@@ -44,7 +44,107 @@ app = FastAPI(
 )
 
 # Pydantic models for request/response
+class BasicSentencesRequest(BaseModel):
+    count: int = 10
+    difficulty: str = "beginner"
 
+class BasicSentencesResponse(BaseModel):
+    sentences: List[str]
+    session_id: str
+
+class AudioRequest(BaseModel):
+    sentence: str
+    session_id: Optional[str] = None
+
+class ComprehensionRequest(BaseModel):
+    topic: str = "daily life"
+    difficulty: str = "intermediate"
+    question_count: int = 5
+
+class MultipleChoiceQuestion(BaseModel):
+    question: str
+    options: List[str]
+    correct_answer: str
+
+class ComprehensionResponse(BaseModel):
+    passage: str
+    multiple_choice: List[MultipleChoiceQuestion]
+    short_answer: List[str]
+    session_id: str
+
+class TranscriptionResponse(BaseModel):
+    transcription: str
+
+class PronunciationCheckRequest(BaseModel):
+   original_sentence: str
+   audio_file: Optional[str] = None  
+   transcribed_text: Optional[str] = None  
+
+class PronunciationCheckResponse(BaseModel):
+   similarity_percentage: float
+   original_text: str
+   spoken_text: str
+   feedback: str
+
+class ScreeningRequest(BaseModel):
+    company_with_role: str
+
+class AssessmentRequest(BaseModel):
+    company_with_role: str
+    questions: List[Dict[str, Any]]
+    responses: Dict[int, str]
+
+class ScreeningResponse(BaseModel):
+    company: str
+    role: str
+    role_title: str
+    questions: List[Dict[str, Any]]
+    scoring_criteria: Dict[str, int]
+    generated_at: str
+    total_questions: int
+
+class AssessmentResponse(BaseModel):
+    overall_score: int
+    category_scores: Dict[str, int]
+    strengths: List[str]
+    areas_for_improvement: List[str]
+    detailed_feedback: Dict[str, str]
+    recommendation: str
+    recommendation_reason: str
+    next_steps: List[str]
+    red_flags: List[str]
+    standout_responses: List[str]
+    assessment_date: str
+    company: str
+    role: str
+    role_title: str
+    total_responses: int
+    response_completion_rate: float
+
+class GenerateAptitudeQuestionsRequestModel(BaseModel):
+    roundType: str  # "APTITUDE", etc.
+    difficulty: str  # "easy", "medium", "hard"
+    questionCount: int
+    category: Optional[str] = None
+    duration: int
+    type: str  # "MCQ", "SUBJECTIVE", etc.
+
+
+class GenerateAptitudeQuestionsRequest(BaseModel):
+    questions_with_answers: List[dict]
+
+class TechnicalGenerationInput(BaseModel):
+    roundType: str
+    difficulty: str
+    questionCount: int
+    category: Optional[str]
+    duration: int
+    type: str
+
+class GenerateTechnicalQuestionsRequest(BaseModel):
+    questions_with_answers: List[dict]
+
+# Initialize generator
 generator = CommunicationQuestionGenerator()
 pronunciation_scorer = PronunciationScorer()
 screening= JobScreeningSystem()
@@ -336,77 +436,76 @@ async def check_pronunciation(
            os.remove(temp_audio_path)
        raise HTTPException(status_code=500, detail=f"Error checking pronunciation: {str(e)}")
 
-@app.get("/api/generate-aptitude-questions", response_model=GenerateAptitudeQuestionsRequest)
-async def generate_aptitude_questions():
-    """
-    API 5: Generate aptitude questions using web scraping
-    """
+
+@app.post("/api/generate-aptitude-questions")
+async def generate_aptitude_questions(req: GenerateAptitudeQuestionsRequestModel):
     try:
-        # Create scraper instance and run scraping
+        # 1. Scrape questions
         scraper = AptitudeQuestionScraper(headless=True)
         scraped_questions = scraper.run_scraping()
-        
+
         if not scraped_questions:
             raise HTTPException(status_code=500, detail="No questions were scraped from the websites")
-        
-        # Process questions with AI to generate answers
+
+        # 2. Process scraped questions via AI
         try:
             process_questions("app/aptitude/question_bank.json", "app/aptitude/questions_with_answers.json")
-            
-            # Load the processed questions with answers
+
             with open("app/aptitude/questions_with_answers.json", "r", encoding="utf-8") as f:
                 questions_with_answers = json.load(f)
-                
+
             if not questions_with_answers:
-                # If AI processing failed, return the scraped questions without answers
-                print("Warning: AI processing failed, returning scraped questions without answers")
                 questions_with_answers = scraped_questions
-                
+
         except Exception as ai_error:
             print(f"AI processing error: {ai_error}")
-            # Return scraped questions without AI-generated answers
             questions_with_answers = scraped_questions
-        
-        return GenerateAptitudeQuestionsRequest(questions_with_answers=questions_with_answers)
-        
+
+        # 3. Trim/filter questions if needed
+        trimmed_questions = questions_with_answers[:req.questionCount]
+
+        return {
+            "questions_with_answers": trimmed_questions
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
 
-@app.get("/api/generate-technical-questions", response_model=GenerateTechnicalQuestionsRequest)
-async def generate_technical_questions():
-    """
-    API 5: Generate technical questions using web scraping
-    """
+@app.post("/api/generate-technical-questions", response_model=GenerateTechnicalQuestionsRequest)
+async def generate_technical_questions(input: TechnicalGenerationInput):
     try:
-        # Create scraper instance and run scraping
+        # Scrape questions (you can also filter based on input.category etc.)
         scraper = TechnicalQuestionScraper(headless=True)
         scraped_questions = scraper.run_scraping()
-        
+
         if not scraped_questions:
             raise HTTPException(status_code=500, detail="No questions were scraped from the websites")
-        
-        # Process questions with AI to generate answers
+
         try:
-            process_technical_questions("app/technical/question_bank.json", "app/technical/questions_with_answers.json")
-            
-            # Load the processed questions with answers
+            process_technical_questions(
+                "app/technical/question_bank.json",
+                "app/technical/questions_with_answers.json"
+            )
+
             with open("app/technical/questions_with_answers.json", "r", encoding="utf-8") as f:
                 questions_with_answers = json.load(f)
-                
+
             if not questions_with_answers:
-                # If AI processing failed, return the scraped questions without answers
-                print("Warning: AI processing failed, returning scraped questions without answers")
+                print("AI processing failed, using scraped questions")
                 questions_with_answers = scraped_questions
-                
+
         except Exception as ai_error:
             print(f"AI processing error: {ai_error}")
-            # Return scraped questions without AI-generated answers
             questions_with_answers = scraped_questions
-        
-        return GenerateTechnicalQuestionsRequest(questions_with_answers=questions_with_answers)
-        
+
+        # Optionally, trim based on `input.questionCount`
+        return GenerateTechnicalQuestionsRequest(
+            questions_with_answers=questions_with_answers[:input.questionCount]
+        )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating technical questions: {str(e)}")
+
 
 @app.post("/generate-questions", response_model=ScreeningResponse)
 async def generate_screening_questions(request: ScreeningRequest):
@@ -446,7 +545,7 @@ async def assess_candidate_responses(request: AssessmentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error assessing responses: {str(e)}")
 
-@app.post("/evaluate-aptitude-answers", response_model=EvaluationResponse)
+@app.post("/api/evaluate-aptitude-answers", response_model=EvaluationResponse)
 async def evaluate_answers(request: EvaluationRequest):
     """
     Evaluate aptitude test answers using LLM-generated correct answers
@@ -491,7 +590,7 @@ async def evaluate_answers(request: EvaluationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing evaluation: {str(e)}")
 
-@app.post("/evaluate-technical-answers", response_model=EvaluationResponse)
+@app.post("/api/evaluate-technical-answers", response_model=EvaluationResponse)
 async def evaluate_technical_answers(request: EvaluationRequestTechnical):
     """
     Evaluate answers using LLM-generated correct answers for different question types
@@ -503,8 +602,7 @@ async def evaluate_technical_answers(request: EvaluationRequestTechnical):
         for question_data in request.questions:
             # Generate correct answer using LLM based on question type
             correct_answer = generate_answer_groq_technical(
-                question_data.question, 
-                question_data.options, 
+                question_data.question,  
                 request.question_type
             )
             
@@ -525,7 +623,6 @@ async def evaluate_technical_answers(request: EvaluationRequestTechnical):
                 "user_answer": question_data.answer,
                 "correct_answer": correct_answer,
                 "is_correct": is_correct,
-                "options": question_data.options
             }
             results.append(result)
         
