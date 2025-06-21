@@ -798,37 +798,6 @@ async def generate_ai_response(request: AIResponseRequest):
         raise HTTPException(status_code=500, detail=f"Failed to generate AI response: {str(e)}")
 
 # Additional endpoints for MongoDB operations
-@app.get("/conversation/{session_id}")
-async def get_conversation_history(session_id: str):
-    """Get conversation history for a session from MongoDB"""
-    try:
-        conversation = interview_manager.interview_collection.get_conversation_history(session_id)
-        
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Session not found or no conversation history")
-        
-        return {
-            "session_id": session_id,
-            "conversation": conversation,
-            "total_messages": len(conversation)
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve conversation: {str(e)}")
-
-@app.get("/session/{session_id}")
-async def get_session_details(session_id: str):
-    """Get complete session details from MongoDB"""
-    try:
-        session = interview_manager.interview_collection.get_interview_session(session_id)
-        
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        return session
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve session: {str(e)}")
 
 @app.post("/api/session/{session_id}/analyze", response_model=SessionScoreResponse)
 async def analyze_session_scores(session_id: str):
@@ -863,11 +832,62 @@ async def analyze_session_scores(session_id: str):
                 for answer in memory_session.get("previous_answers", []):
                     session_data["conversation"].append({
                         "type": "user_response",
-                        "transcript": answer.get("answer", ""),
+                        "content": answer.get("answer", ""),  # Use 'content' field
                         "question_number": answer.get("question_number", 1)
                     })
             else:
                 raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Debug: Log the session data structure
+        print(f"Session data structure: {json.dumps(session_data, indent=2, default=str)}")
+        
+        # Ensure conversation exists and has proper format
+        if "conversation" not in session_data:
+            session_data["conversation"] = []
+        
+        # Convert conversation format if needed
+        formatted_conversation = []
+        for msg in session_data.get("conversation", []):
+            if isinstance(msg, dict):
+                # Handle different message formats
+                if msg.get("type") == "user_response":
+                    # Ensure content field exists
+                    content = msg.get("content") or msg.get("transcript", "")
+                    if content:
+                        formatted_conversation.append({
+                            "type": "user_response",
+                            "content": content,
+                            "timestamp": msg.get("timestamp"),
+                            "question_number": msg.get("question_number")
+                        })
+                else:
+                    # Keep other message types as-is
+                    formatted_conversation.append(msg)
+        
+        session_data["conversation"] = formatted_conversation
+        
+        # Debug: Log user responses
+        user_responses = [msg.get("content", "") for msg in formatted_conversation if msg.get("type") == "user_response"]
+        print(f"Found {len(user_responses)} user responses: {user_responses}")
+        
+        if not user_responses:
+            # Return default scores if no responses found
+            return SessionScoreResponse(
+                overallScore=50,
+                scores={
+                    "confidence": 50,
+                    "technical": 50,
+                    "communication": 50,
+                    "fluency": 50,
+                    "base_knowledge": 50
+                },
+                feedback={
+                    "strengths": ["Participated in interview process"],
+                    "improvements": ["No responses available for analysis"],
+                    "detailedFeedback": "Unable to analyze session - no user responses found."
+                },
+                analysis_timestamp=datetime.now().isoformat()
+            )
         
         # Analyze the session
         analysis_result = session_analyzer.analyze_session_scores(session_data)
@@ -882,19 +902,22 @@ async def analyze_session_scores(session_id: str):
         }
         
         # Update the session with scores in MongoDB
-        # Only use parameters that the method accepts
-        success = interview_manager.interview_collection.update_session_scores(
-            session_id=session_id,
-            sentiment_analysis=sentiment_analysis,
-            confidence_score=analysis_result["scores"]["confidence"],
-            communication_score=analysis_result["scores"]["communication"],
-            technical_score=analysis_result["scores"]["technical"],
-            overall_score=analysis_result["overallScore"],
-            detailed_feedback=analysis_result["feedback"]
-        )
-        
-        if not success:
-            print(f"Warning: Failed to update scores in database for session {session_id}")
+        try:
+            success = interview_manager.interview_collection.update_session_scores(
+                session_id=session_id,
+                sentiment_analysis=sentiment_analysis,
+                confidence_score=analysis_result["scores"]["confidence"],
+                communication_score=analysis_result["scores"]["communication"],
+                technical_score=analysis_result["scores"]["technical"],
+                overall_score=analysis_result["overallScore"],
+                detailed_feedback=analysis_result["feedback"]
+            )
+            
+            if not success:
+                print(f"Warning: Failed to update scores in database for session {session_id}")
+        except Exception as db_error:
+            print(f"Database update error: {db_error}")
+            # Continue without failing the API call
         
         return SessionScoreResponse(
             overallScore=analysis_result["overallScore"],
@@ -906,86 +929,168 @@ async def analyze_session_scores(session_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error in analyze_session_scores: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to analyze session: {str(e)}")
-@app.post("/session/{session_id}/scores")
-async def update_session_scores(session_id: str, scores: dict):
-    """
-    [DEPRECATED] Use /api/session/{session_id}/analyze instead
-    Update analysis scores for a session
-    """
+@app.get("/conversation/{session_id}")
+async def get_conversation_history(session_id: str):
+    """Get conversation history for a session from MongoDB"""
     try:
-        success = interview_manager.interview_collection.update_session_scores(
-            session_id=session_id,
-            sentiment_analysis=scores.get("sentiment_analysis"),
-            confidence_score=scores.get("confidence_score"),
-            communication_score=scores.get("communication_score"),
-            technical_score=scores.get("technical_score")
-        )
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        return {"message": "Scores updated successfully", "deprecated": True, "use_instead": f"/api/session/{session_id}/analyze"}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update scores: {str(e)}")
-
-# Additional endpoint to get detailed session analysis
-@app.get("/api/session/{session_id}/detailed-analysis")
-async def get_detailed_session_analysis(session_id: str):
-    """
-    Get comprehensive session analysis including:
-    - Individual parameter scores
-    - Conversation flow analysis
-    - Response quality metrics
-    - Improvement recommendations
-    """
-    try:
-        # Get session data
-        session_data = interview_manager.interview_collection.get_interview_session(session_id)
-        
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Get conversation history
         conversation = interview_manager.interview_collection.get_conversation_history(session_id)
         
-        # Analyze session
-        analysis_result = session_analyzer.analyze_session_scores(session_data)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Session not found or no conversation history")
         
-        # Additional metrics
-        total_responses = len([msg for msg in conversation if msg.get("type") == "user_response"])
-        avg_response_length = 0
-        if total_responses > 0:
-            total_length = sum(len(msg.get("transcript", "")) for msg in conversation if msg.get("type") == "user_response")
-            avg_response_length = total_length / total_responses
+        # Debug: Log the conversation structure
+        print(f"Retrieved conversation with {len(conversation)} messages")
+        user_responses = [msg for msg in conversation if msg.get("type") == "user_response"]
+        print(f"Found {len(user_responses)} user responses")
         
         return {
-            "session_info": {
-                "session_id": session_id,
-                "user_name": session_data.get("user_name"),
-                "user_role": session_data.get("user_role"),
-                "total_questions": len([msg for msg in conversation if msg.get("type") == "ai_question"]),
-                "total_responses": total_responses,
-                "average_response_length": round(avg_response_length, 2),
-                "session_duration": session_data.get("duration", "N/A")
-            },
-            "scores": analysis_result["scores"],
-            "overall_score": analysis_result["overallScore"],
-            "feedback": analysis_result["feedback"],
-            "conversation_summary": {
-                "total_exchanges": len(conversation) // 2,
-                "response_quality": "Analyzed" if total_responses > 0 else "No responses to analyze"
-            },
-            "analysis_timestamp": analysis_result["analysis_timestamp"]
+            "session_id": session_id,
+            "conversation": conversation,
+            "total_messages": len(conversation)
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get detailed analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve conversation: {str(e)}")
 
-# Endpoint to compare multiple sessions
+@app.get("/session/{session_id}")
+async def get_session_details(session_id: str):
+    """Get complete session details from MongoDB"""
+    try:
+        session = interview_manager.interview_collection.get_interview_session(session_id)
+        print(f"Retrieving session details for {session_id}")
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Debug: Log session structure
+        if "conversation" in session:
+            user_responses = [msg for msg in session["conversation"] if msg.get("type") == "user_response"]
+            print(f"Session has {len(user_responses)} user responses")
+        
+        return session
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve session: {str(e)}")
+
+# Test endpoint to debug conversation format
+@app.get("/debug/session/{session_id}")
+async def debug_session_format(session_id: str):
+    """Debug endpoint to check session data format"""
+    try:
+        session_data = interview_manager.interview_collection.get_interview_session(session_id)
+        print(f"Debugging session {session_id} format")
+        
+        if not session_data:
+            return {"error": "Session not found"}
+        
+        # Print the full session data structure to understand what we're working with
+        print("=== FULL SESSION DATA ===")
+        print(session_data)
+        print("=== SESSION DATA KEYS ===")
+        print(list(session_data.keys()) if isinstance(session_data, dict) else "Not a dict")
+        
+        # More flexible approach - check all possible conversation field names
+        conversation_data = None
+        conversation_field = None
+        
+        # Check common field names for conversation data
+        possible_fields = ['conversation', 'messages', 'chat_history', 'interactions', 'responses']
+        for field in possible_fields:
+            if field in session_data and isinstance(session_data[field], list):
+                conversation_data = session_data[field]
+                conversation_field = field
+                break
+        
+        # Extract user responses for debugging
+        user_responses = []
+        message_types = set()
+        
+        if conversation_data:
+            for msg in conversation_data:
+                # Collect all message types to understand structure
+                if isinstance(msg, dict):
+                    msg_type = msg.get("type", "unknown")
+                    message_types.add(msg_type)
+                    
+                    # Look for user responses with flexible field matching
+                    if msg_type == "user_response" or "user" in msg_type.lower():
+                        user_responses.append({
+                            "content": msg.get("content"),
+                            "transcript": msg.get("transcript"),
+                            "timestamp": msg.get("timestamp"),
+                            "question_number": msg.get("question_number"),
+                            "full_message": msg  # Include full message for debugging
+                        })
+        
+        # Comprehensive session analysis
+        return {
+            "session_id": session_id,
+            "session_found": True,
+            "session_keys": list(session_data.keys()),
+            "conversation_field_used": conversation_field,
+            "total_messages": len(conversation_data) if conversation_data else 0,
+            "user_responses_count": len(user_responses),
+            "user_responses": user_responses,
+            "session_structure": {
+                "has_conversation": conversation_field is not None,
+                "conversation_field": conversation_field,
+                "conversation_length": len(conversation_data) if conversation_data else 0,
+                "message_types": list(message_types),
+                "all_fields": list(session_data.keys())
+            },
+            "raw_sample": {
+                "first_few_items": dict(list(session_data.items())[:5]) if session_data else None
+            }
+        }
+        
+    except Exception as e:
+        print(f"Debug endpoint error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Debug failed: {str(e)}"}
+
+# Additional utility endpoint for testing scoring
+@app.post("/test/analyze-text")
+async def test_analyze_text(session_id: str, role: str = ""):
+    """Test endpoint to analyze text directly without session"""
+    try:
+        responses = interview_manager.interview_collection.get_conversation_history(session_id)
+
+        if not responses or not isinstance(responses, list):
+            raise HTTPException(status_code=400, detail="No responses provided")
+
+        # Construct mock session
+        conversation = [
+            {
+                "type": message.get("type", ""),
+                "content": message.get("content", ""),
+                "question_number": message.get("metadata", {}).get("question_number", None),
+                "speaker": message.get("speaker", "unknown"),
+            }
+            for message in responses
+            if message.get("type") in ("user_response", "ai_question", "ai_greeting")
+        ]
+
+        if not conversation:
+            raise HTTPException(status_code=400, detail="No valid conversation messages found")
+
+        mock_session = {
+            "session_id": session_id,
+            "user_role": role or "Software Engineer",
+            "conversation": conversation
+        }
+
+        analysis_result = session_analyzer.analyze_session_scores(mock_session)
+        return analysis_result
+
+    except HTTPException as e:
+        raise e  # re-raise so correct status is preserved
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze text: {str(e)}")
+
+
+
 @app.post("/api/sessions/compare")
 async def compare_sessions(session_ids: List[str]):
     """
