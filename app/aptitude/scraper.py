@@ -2,8 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 import json
 import os
 import random
@@ -11,7 +10,7 @@ import time
 import re
 
 class AptitudeQuestionScraper:
-    def __init__(self, headless=True):
+    def __init__(self, headless=False):
         self.options = Options()
         if headless:
             self.options.add_argument("--headless")
@@ -51,7 +50,7 @@ class AptitudeQuestionScraper:
         if self.driver:
             self.driver.quit()
 
-    def wait_for_page_load(self, timeout=10):
+    def wait_for_page_load(self):
         try:
             self.wait.until(lambda driver: driver.execute_script("return document.readyState") == "complete")
             time.sleep(3)
@@ -213,34 +212,43 @@ class AptitudeQuestionScraper:
             json.dump(questions, f, indent=4, ensure_ascii=False)
         print(f"Saved {len(questions)} questions to {filename}")
 
+    # Fixed: Made this an instance method instead of static
+    def run_scraping(self):
+        """Run the complete scraping process"""
+        print("Starting Aptitude Question Scraper...")
+        all_questions = self.scrape_all_topics(max_per_topic=2)
+        print(f"\n=== RESULTS ===")
+        print(f"Total questions found: {len(all_questions)}")
+        if all_questions:
+            self.save_questions(all_questions)
+            print(f"\n=== SAMPLE QUESTIONS ===")
+            for i, q in enumerate(all_questions[:3]):
+                print(f"\nQuestion {i+1}:")
+                print(f"Q: {q['question']}")
+                print(f"Options ({len(q['options'])}):")
+                for j, opt in enumerate(q['options'], 1):
+                    print(f"  {j}. {opt}")
+                if q['answer']:
+                    print(f"Answer: {q['answer']}")
+            return all_questions
+        else:
+            print("\nNo questions extracted. Possible issues:")
+            print("1. Website structure has changed")
+            print("2. Anti-bot protection is blocking access")
+            print("3. Network connectivity issues")
+            print("4. Selectors need updating")
+            print("\nTroubleshooting suggestions:")
+            print("1. Run with headless=False to see browser behavior")
+            print("2. Check the website manually")
+            print("3. Add more delays")
+            print("4. Use a different approach (API, manual creation, etc.)")
+            return []
+
+# Fixed: Added the missing main function
 def main():
-    print("Starting Aptitude Question Scraper...")
+    """Main function to run the scraper"""
     scraper = AptitudeQuestionScraper(headless=False)
-    all_questions = scraper.scrape_all_topics(max_per_topic=2)
-    print(f"\n=== RESULTS ===")
-    print(f"Total questions found: {len(all_questions)}")
-    if all_questions:
-        scraper.save_questions(all_questions)
-        print(f"\n=== SAMPLE QUESTIONS ===")
-        for i, q in enumerate(all_questions[:3]):
-            print(f"\nQuestion {i+1}:")
-            print(f"Q: {q['question']}")
-            print(f"Options ({len(q['options'])}):")
-            for j, opt in enumerate(q['options'], 1):
-                print(f"  {j}. {opt}")
-            if q['answer']:
-                print(f"Answer: {q['answer']}")
-    else:
-        print("\nNo questions extracted. Possible issues:")
-        print("1. Website structure has changed")
-        print("2. Anti-bot protection is blocking access")
-        print("3. Network connectivity issues")
-        print("4. Selectors need updating")
-        print("\nTroubleshooting suggestions:")
-        print("1. Run with headless=False to see browser behavior")
-        print("2. Check the website manually")
-        print("3. Add more delays")
-        print("4. Use a different approach (API, manual creation, etc.)")
+    scraper.run_scraping()
 
 if __name__ == "__main__":
     main()

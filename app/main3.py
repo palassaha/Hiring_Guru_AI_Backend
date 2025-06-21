@@ -10,10 +10,12 @@ import openai
 from dotenv import load_dotenv
 import uvicorn
 from fastapi import Form
+from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
 from app.communication.comms import CommunicationQuestionGenerator
 from app.interview.tts import speak_text
 from app.interview.whisper_groq import transcribe_audio
+from app.aptitude.llm import process_questions
 
 # Load environment variables
 load_dotenv()
@@ -72,11 +74,14 @@ class PronunciationCheckResponse(BaseModel):
    spoken_text: str
    feedback: str
 
+class GenerateAptitudeQuestionsRequest(BaseModel):
+    questions_with_answers: List[dict]
 # Communication Question Generator Class
 
 # Initialize generator
 generator = CommunicationQuestionGenerator()
 pronunciation_scorer = PronunciationScorer()
+
 
 # Create directories for storing files
 os.makedirs("data/audio", exist_ok=True)
@@ -349,7 +354,44 @@ async def check_pronunciation(
        if temp_audio_path and os.path.exists(temp_audio_path):
            os.remove(temp_audio_path)
        raise HTTPException(status_code=500, detail=f"Error checking pronunciation: {str(e)}")
-   
+
+@app.get("/api/generate-aptitude-questions", response_model=GenerateAptitudeQuestionsRequest)
+async def generate_aptitude_questions():
+    """
+    API 5: Generate aptitude questions using web scraping
+    """
+    try:
+        # Create scraper instance and run scraping
+        scraper = AptitudeQuestionScraper(headless=True)
+        scraped_questions = scraper.run_scraping()
+        
+        if not scraped_questions:
+            raise HTTPException(status_code=500, detail="No questions were scraped from the websites")
+        
+        # Process questions with AI to generate answers
+        try:
+            process_questions("app/aptitude/question_bank.json", "app/aptitude/questions_with_answers.json")
+            
+            # Load the processed questions with answers
+            with open("app/aptitude/questions_with_answers.json", "r", encoding="utf-8") as f:
+                questions_with_answers = json.load(f)
+                
+            if not questions_with_answers:
+                # If AI processing failed, return the scraped questions without answers
+                print("Warning: AI processing failed, returning scraped questions without answers")
+                questions_with_answers = scraped_questions
+                
+        except Exception as ai_error:
+            print(f"AI processing error: {ai_error}")
+            # Return scraped questions without AI-generated answers
+            questions_with_answers = scraped_questions
+        
+        return GenerateAptitudeQuestionsRequest(questions_with_answers=questions_with_answers)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
+
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
