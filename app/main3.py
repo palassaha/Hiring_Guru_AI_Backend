@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 from bson import ObjectId
-from fastapi import FastAPI, HTTPException, Response, UploadFile, File, logger
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile, File, logger
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import openai
 from dotenv import load_dotenv
@@ -14,13 +14,14 @@ from typing import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
-from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, SessionScoreResponse, TechnicalGenerationInput, TranscriptionResponse
+from app.classes import AIResponseRequest, AnalysisResponse, AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateAptitudeQuestionsRequestModel, GenerateTechnicalQuestionsRequest, GreetingRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, SessionScoreResponse, TechnicalGenerationInput, TranscriptionResponse, UserProfileRequest
 from app.dsa_coding.scraper_3 import scrape_random_questions
 from app.interview.emotion_detector import score_nervousness_relative
 from app.interview.feature_extract import compute_relative_features, extract_voice_features
 from app.interview.llm_groq import generate_question
 from app.interview.scores import SessionAnalyzer
 from app.mongo import InterviewDataManager, MongoDBHandler
+from app.onboarding.onboard import AssessmentGenerator
 from app.technical.results import generate_answer_groq as generate_answer_groq_technical , generate_detailed_feedback as generate_detailed_feedback_technical, is_answer_correct as is_answer_correct_technical
 from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
@@ -84,8 +85,6 @@ def get_session(session_id: str):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     return sessions[session_id]
-
-# API Endpoints
 
 @app.get("/")
 async def root():
@@ -1201,6 +1200,74 @@ async def end_session(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to end session: {str(e)}")
 
+@app.post("/generate-assessment", response_model=AssessmentResponse)
+async def generate_assessment(
+    user_profile: UserProfileRequest,
+    api_key: str = os.getenv("GEMINI_API_KEY")
+):
+    """
+    Generate a custom assessment based on user profile data
+    
+    Args:
+        user_profile: User profile information including skills, target role, etc.
+    
+    Returns:
+        Generated assessment with rounds and configuration
+    """
+    try:
+        # Convert Pydantic model to dictionary
+        user_data = user_profile.model_dump()
+        
+        # Initialize the assessment generator
+        generator = AssessmentGenerator(api_key)
+        
+        # Generate the assessment
+        assessment_data = generator.generate_assessment(user_data)
+        
+        # Return the structured response
+        return AssessmentResponse(**assessment_data)
+        
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate assessment: {str(e)}"
+        )
+
+@app.post("/generate-assessment-raw")
+async def generate_assessment_raw(
+    user_profile: UserProfileRequest,
+    api_key: str = os.getenv("GEMINI_API_KEY")
+):
+    """
+    Generate a custom assessment and return raw JSON response
+    
+    Args:
+        user_profile: User profile information including skills, target role, etc.
+    
+    Returns:
+        Raw JSON response with generated assessment
+    """
+    try:
+        # Convert Pydantic model to dictionary
+        user_data = user_profile.model_dump()
+        
+        # Initialize the assessment generator
+        generator = AssessmentGenerator(api_key)
+        
+        # Generate the assessment
+        assessment_data = generator.generate_assessment(user_data)
+        
+        return JSONResponse(content=assessment_data)
+        
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate assessment: {str(e)}"
+        )
 
 # Health check endpoint
 @app.get("/health")

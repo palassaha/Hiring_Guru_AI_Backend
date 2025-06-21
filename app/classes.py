@@ -1,5 +1,7 @@
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class BasicSentencesRequest(BaseModel):
     count: int = 10
@@ -225,3 +227,60 @@ class SessionScoreResponse(BaseModel):
 
 class SessionAnalysisRequest(BaseModel):
     session_id: str
+
+class UserProfileRequest(BaseModel):
+    userId: str = Field(..., description="Unique user identifier")
+    skills: List[str] = Field(default=[], description="List of user skills")
+    contributionFreq: str = Field(default="medium", description="Contribution frequency")
+    projectsCount: int = Field(default=0, description="Number of projects")
+    topLanguages: List[str] = Field(default=[], description="Top programming languages")
+    recentActivity: Dict[str, Any] = Field(default={}, description="Recent activity data")
+    repositoryStats: Dict[str, Any] = Field(default={}, description="Repository statistics")
+    targetRole: str = Field(..., description="Target job role")
+    dreamCompanies: List[str] = Field(default=[], description="Dream companies list")
+    skillGaps: List[str] = Field(default=[], description="Identified skill gaps")
+    careerPath: List[str] = Field(default=[], description="Career path progression")
+
+class RoundResponse(BaseModel):
+    roundType: str
+    name: str
+    description: Optional[str]
+    duration: int
+    sequence: int
+    config: Optional[Dict[str, Any]] = None
+
+class AssessmentResponse(BaseModel):
+    name: str
+    description: Optional[str]
+    difficulty: str
+    rounds: List[RoundResponse]
+
+class RoundType(Enum):
+    SCREENING = 'SCREENING'
+    APTITUDE = 'APTITUDE'
+    COMMUNICATION = 'COMMUNICATION'
+    CODING = 'CODING'
+    TECHNICAL = 'TECHNICAL'
+    BEHAVIORAL = 'BEHAVIORAL'
+    SYSTEM_DESIGN = 'SYSTEM_DESIGN'
+
+class DifficultyLevel(Enum):
+    EASY = 'EASY'
+    MEDIUM = 'MEDIUM'
+    HARD = 'HARD'
+
+@dataclass
+class CreateCustomRoundDto:
+    roundType: str
+    name: str
+    description: Optional[str]
+    duration: int  # in minutes
+    sequence: int
+    config: Optional[Dict[str, Any]] = None
+
+@dataclass
+class CreateCustomAssessmentDto:
+    name: str
+    description: Optional[str]
+    difficulty: str
+    rounds: List[CreateCustomRoundDto]
