@@ -11,6 +11,17 @@
         "explanation": ""
     },
     {
+        "question": "A train running at the speed of 60 km/hr crosses a pole in 9 seconds. What is the length of the train?",
+        "options": [
+            "120 metres",
+            "180 metres",
+            "324 metres",
+            "150 metres"
+        ],
+        "answer": "150 metres",
+        "explanation": ""
+    },
+    {
         "question": "A batsman scored 110 runs which included 3 boundaries and 8 sixes. What percent of his total score did he make by running between the wickets?",
         "options": [
             "45%",
@@ -22,14 +33,15 @@
         "explanation": ""
     },
     {
-        "question": "A grocer has a sale of Rs. 6435, Rs. 6927, Rs. 6855, Rs. 7230 and Rs. 6562 for 5 consecutive months. How much sale must he have in the sixth month so that he gets an average sale of Rs. 6500?",
+        "question": "The average of 20 numbers is zero. Of them, at the most, how many may be greater than zero?",
         "options": [
-            "Rs. 4991",
-            "Rs. 5991",
-            "Rs. 6001",
-            "Rs. 6991"
+            "4.",
+            "20",
+            "0",
+            "1",
+            "10"
         ],
-        "answer": "Rs. 4991",
+        "answer": "20",
         "explanation": ""
     },
     {
@@ -45,23 +57,27 @@
         "explanation": ""
     },
     {
-        "question": "In a certain store, the profit is 320% of the cost. If the cost increases by 25% but the selling price remains constant, approximately what percentage of the selling price is the profit?",
+        "question": "A vendor bought toffees at 6 for a rupee. How many for a rupee must he sell to gain 20%?",
         "options": [
-            "30%",
-            "70%",
-            "100%",
-            "250%"
+            "5.",
+            "6",
+            "20%",
+            "3",
+            "4"
         ],
-        "answer": "70%",
+        "answer": "5",
         "explanation": ""
     },
     {
-        "question": "A person crosses a 600 m long street in 5 minutes. What is his speed in km per hour?",
+        "question": "Excluding stoppages, the speed of a bus is 54 kmph and including stoppages, it is 45 kmph. For how many minutes does the bus stop per hour?",
         "options": [
-            "7.2",
-            "8.4"
+            "5.",
+            "54",
+            "45",
+            "9",
+            "10"
         ],
-        "answer": "7.2",
+        "answer": "10",
         "explanation": ""
     }
 ]

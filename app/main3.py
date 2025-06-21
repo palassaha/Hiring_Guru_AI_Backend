@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from fastapi import FastAPI, HTTPException, Response, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -12,6 +12,8 @@ from typing import Dict
 import uvicorn
 from fastapi import Form
 from app.aptitude.result import generate_answer_groq, generate_detailed_feedback, is_answer_correct
+from app.classes import AssessmentRequest, AssessmentResponse, AudioRequest, BasicSentencesRequest, BasicSentencesResponse, ComprehensionRequest, ComprehensionResponse, EvaluationRequest, EvaluationRequestTechnical, EvaluationResponse, GenerateAptitudeQuestionsRequest, GenerateTechnicalQuestionsRequest, MultipleChoiceQuestion, PronunciationCheckResponse, ScreeningRequest, ScreeningResponse, TranscriptionResponse
+from app.technical.results import generate_answer_groq as generate_answer_groq_technical , generate_detailed_feedback as generate_detailed_feedback_technical, is_answer_correct as is_answer_correct_technical
 from app.aptitude.scraper import AptitudeQuestionScraper
 from app.communication.check import PronunciationScorer
 from app.communication.comms import CommunicationQuestionGenerator
@@ -37,100 +39,6 @@ app = FastAPI(
 )
 
 # Pydantic models for request/response
-class BasicSentencesRequest(BaseModel):
-    count: int = 10
-    difficulty: str = "beginner"
-
-class BasicSentencesResponse(BaseModel):
-    sentences: List[str]
-    session_id: str
-
-class AudioRequest(BaseModel):
-    sentence: str
-    session_id: Optional[str] = None
-
-class ComprehensionRequest(BaseModel):
-    topic: str = "daily life"
-    difficulty: str = "intermediate"
-    question_count: int = 5
-
-class MultipleChoiceQuestion(BaseModel):
-    question: str
-    options: List[str]
-    correct_answer: str
-
-class ComprehensionResponse(BaseModel):
-    passage: str
-    multiple_choice: List[MultipleChoiceQuestion]
-    short_answer: List[str]
-    session_id: str
-
-class TranscriptionResponse(BaseModel):
-    transcription: str
-
-class PronunciationCheckRequest(BaseModel):
-   original_sentence: str
-   audio_file: Optional[str] = None  
-   transcribed_text: Optional[str] = None  
-
-class PronunciationCheckResponse(BaseModel):
-   similarity_percentage: float
-   original_text: str
-   spoken_text: str
-   feedback: str
-
-class ScreeningRequest(BaseModel):
-    company_with_role: str
-
-class AssessmentRequest(BaseModel):
-    company_with_role: str
-    questions: List[Dict[str, Any]]
-    responses: Dict[int, str]
-
-class ScreeningResponse(BaseModel):
-    company: str
-    role: str
-    role_title: str
-    questions: List[Dict[str, Any]]
-    scoring_criteria: Dict[str, int]
-    generated_at: str
-    total_questions: int
-
-class AssessmentResponse(BaseModel):
-    overall_score: int
-    category_scores: Dict[str, int]
-    strengths: List[str]
-    areas_for_improvement: List[str]
-    detailed_feedback: Dict[str, str]
-    recommendation: str
-    recommendation_reason: str
-    next_steps: List[str]
-    red_flags: List[str]
-    standout_responses: List[str]
-    assessment_date: str
-    company: str
-    role: str
-    role_title: str
-    total_responses: int
-    response_completion_rate: float
-
-class Question(BaseModel):
-    question: str
-    options: List[str]
-    answer: str
-
-class EvaluationRequest(BaseModel):
-    questions: List[Question]
-
-class EvaluationResponse(BaseModel):
-    overallScore: str
-    feedback: Dict[str, Any]
-    detailedResults: List[Dict[str, Any]]
-class GenerateAptitudeQuestionsRequest(BaseModel):
-    questions_with_answers: List[dict]
-# Communication Question Generator Class
-class GenerateTechnicalQuestionsRequest(BaseModel):
-    questions_with_answers: List[dict]
 
 generator = CommunicationQuestionGenerator()
 pronunciation_scorer = PronunciationScorer()
@@ -565,6 +473,61 @@ async def evaluate_answers(request: EvaluationRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing evaluation: {str(e)}")
+
+@app.post("/evaluate-technical-answers", response_model=EvaluationResponse)
+async def evaluate_technical_answers(request: EvaluationRequestTechnical):
+    """
+    Evaluate answers using LLM-generated correct answers for different question types
+    """
+    try:
+        results = []
+        correct_answers = 0
+        
+        for question_data in request.questions:
+            # Generate correct answer using LLM based on question type
+            correct_answer = generate_answer_groq_technical(
+                question_data.question, 
+                question_data.options, 
+                request.question_type
+            )
+            
+            if not correct_answer:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to generate answer for question: {question_data.question[:50]}..."
+                )
+            
+            # Check if user answer is correct
+            is_correct = is_answer_correct_technical(question_data.answer, correct_answer)
+            
+            if is_correct:
+                correct_answers += 1
+            
+            result = {
+                "question": question_data.question,
+                "user_answer": question_data.answer,
+                "correct_answer": correct_answer,
+                "is_correct": is_correct,
+                "options": question_data.options
+            }
+            results.append(result)
+        
+        # Calculate overall score
+        overall_score = (correct_answers / len(request.questions)) * 100 if request.questions else 0
+        
+        # Generate feedback based on question type
+        feedback = generate_detailed_feedback_technical(results, overall_score, request.question_type)
+        
+        return EvaluationResponse(
+            overallScore=f"{round(overall_score, 1)}%",
+            feedback=feedback,
+            detailedResults=results,
+            questionType=request.question_type
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing evaluation: {str(e)}")
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
