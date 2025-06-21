@@ -1,22 +1,33 @@
 [
     {
-        "question": "A train running at the speed of 60 km/hr crosses a pole in 9 seconds. What is the length of the train?",
+        "question": "A train passes a station platform in 36 seconds and a man standing on the platform in 20 seconds. If the speed of the train is 54 km/hr, what is the length of the platform?",
         "options": [
-            "120 metres",
-            "180 metres",
-            "324 metres",
-            "150 metres"
+            "120 m",
+            "240 m",
+            "300 m",
+            "None of these"
         ],
         "answer": "",
         "explanation": ""
     },
     {
-        "question": "What percentage of numbers from 1 to 70 have 1 or 9 in the unit's digit?",
+        "question": "A batsman scored 110 runs which included 3 boundaries and 8 sixes. What percent of his total score did he make by running between the wickets?",
         "options": [
-            "4.",
-            "1",
-            "70",
-            "9"
+            "45%",
+            "45.5%",
+            "54.6%",
+            "55%"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "A grocer has a sale of Rs. 6435, Rs. 6927, Rs. 6855, Rs. 7230 and Rs. 6562 for 5 consecutive months. How much sale must he have in the sixth month so that he gets an average sale of Rs. 6500?",
+        "options": [
+            "Rs. 4991",
+            "Rs. 5991",
+            "Rs. 6001",
+            "Rs. 6991"
         ],
         "answer": "",
         "explanation": ""
@@ -29,18 +40,6 @@
             "85 kg",
             "Data inadequate",
             "None of these"
-        ],
-        "answer": "",
-        "explanation": ""
-    },
-    {
-        "question": "The average of 20 numbers is zero. Of them, at the most, how many may be greater than zero?",
-        "options": [
-            "4.",
-            "20",
-            "0",
-            "1",
-            "10"
         ],
         "answer": "",
         "explanation": ""

@@ -119,7 +119,6 @@ class GenerateAptitudeQuestionsRequest(BaseModel):
 class GenerateTechnicalQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
 
-# Initialize generator
 generator = CommunicationQuestionGenerator()
 pronunciation_scorer = PronunciationScorer()
 screening= JobScreeningSystem()
@@ -517,7 +516,6 @@ async def health_check():
         "api_key_configured": bool(openai.api_key)
     }
 
-# Get session info
 @app.get("/api/session/{session_id}")
 async def get_session_info(session_id: str):
     """Get information about a specific session"""
