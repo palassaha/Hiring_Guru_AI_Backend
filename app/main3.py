@@ -30,7 +30,7 @@ from app.aptitude.llm import process_questions
 from app.technical.llm import process_questions as process_technical_questions
 from app.screening.screening import JobScreeningSystem
 from app.technical.scraper import TechnicalQuestionScraper
-
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -53,7 +53,16 @@ app = FastAPI(
     description="API for generating communication practice materials",
     version="1.0.0"
 )
+# CORS Configuration
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[FRONTEND_URL],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 # Pydantic models for request/response
 
 # Initialize generator
