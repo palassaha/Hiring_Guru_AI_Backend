@@ -291,14 +291,33 @@ class InterviewDataCollection:
     def get_interview_session(self, session_id: str) -> Optional[Dict]:
         """Get interview session by session ID"""
         try:
+            print(f"Searching for session: {session_id}")
             session = self.collection.find_one({"sessionId": session_id})
+            print(f"Query executed. Session found: {session is not None}")
+            
             if session:
+                print(f"Session keys: {list(session.keys())}")
+                print(f"Session data preview: {str(session)[:200]}...")
                 # Convert ObjectId to string for JSON serialization
                 session["_id"] = str(session["_id"])
                 return session
+            else:
+                print("No session found with that ID")
+                # Let's also check if there are any sessions at all
+                total_sessions = self.collection.count_documents({})
+                print(f"Total sessions in collection: {total_sessions}")
+                
+                # Check for similar session IDs
+                similar_sessions = list(self.collection.find({}, {"sessionId": 1}).limit(5))
+                print(f"Sample session IDs in database: {[s.get('sessionId') for s in similar_sessions]}")
+                
             return None
+            
         except Exception as e:
             logger.error(f"Error retrieving session: {e}")
+            print(f"Exception in get_interview_session: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def get_conversation_history(self, session_id: str) -> List[Dict]:
