@@ -113,6 +113,15 @@ class AssessmentResponse(BaseModel):
     total_responses: int
     response_completion_rate: float
 
+class GenerateAptitudeQuestionsRequestModel(BaseModel):
+    roundType: str  # "APTITUDE", etc.
+    difficulty: str  # "easy", "medium", "hard"
+    questionCount: int
+    category: Optional[str] = None
+    duration: int
+    type: str  # "MCQ", "SUBJECTIVE", etc.
+
+
 class GenerateAptitudeQuestionsRequest(BaseModel):
     questions_with_answers: List[dict]
 # Communication Question Generator Class
@@ -397,39 +406,38 @@ async def check_pronunciation(
            os.remove(temp_audio_path)
        raise HTTPException(status_code=500, detail=f"Error checking pronunciation: {str(e)}")
 
-@app.get("/api/generate-aptitude-questions", response_model=GenerateAptitudeQuestionsRequest)
-async def generate_aptitude_questions():
-    """
-    API 5: Generate aptitude questions using web scraping
-    """
+
+@app.post("/api/generate-aptitude-questions")
+async def generate_aptitude_questions(req: GenerateAptitudeQuestionsRequestModel):
     try:
-        # Create scraper instance and run scraping
+        # 1. Scrape questions
         scraper = AptitudeQuestionScraper(headless=True)
         scraped_questions = scraper.run_scraping()
-        
+
         if not scraped_questions:
             raise HTTPException(status_code=500, detail="No questions were scraped from the websites")
-        
-        # Process questions with AI to generate answers
+
+        # 2. Process scraped questions via AI
         try:
             process_questions("app/aptitude/question_bank.json", "app/aptitude/questions_with_answers.json")
-            
-            # Load the processed questions with answers
+
             with open("app/aptitude/questions_with_answers.json", "r", encoding="utf-8") as f:
                 questions_with_answers = json.load(f)
-                
+
             if not questions_with_answers:
-                # If AI processing failed, return the scraped questions without answers
-                print("Warning: AI processing failed, returning scraped questions without answers")
                 questions_with_answers = scraped_questions
-                
+
         except Exception as ai_error:
             print(f"AI processing error: {ai_error}")
-            # Return scraped questions without AI-generated answers
             questions_with_answers = scraped_questions
-        
-        return GenerateAptitudeQuestionsRequest(questions_with_answers=questions_with_answers)
-        
+
+        # 3. Trim/filter questions if needed
+        trimmed_questions = questions_with_answers[:req.questionCount]
+
+        return {
+            "questions_with_answers": trimmed_questions
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating aptitude questions: {str(e)}")
 

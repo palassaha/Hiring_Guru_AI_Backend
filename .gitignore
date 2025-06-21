@@ -4,3 +4,4 @@ baseline_features.json
 baseline.wav
 .env
 __pycache__/
+myenv
