@@ -1,6 +1,105 @@
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
 
+class BasicSentencesRequest(BaseModel):
+    count: int = 10
+    difficulty: str = "beginner"
+
+class BasicSentencesResponse(BaseModel):
+    sentences: List[str]
+    session_id: str
+
+class AudioRequest(BaseModel):
+    sentence: str
+    session_id: Optional[str] = None
+
+class ComprehensionRequest(BaseModel):
+    topic: str = "daily life"
+    difficulty: str = "intermediate"
+    question_count: int = 5
+
+class MultipleChoiceQuestion(BaseModel):
+    question: str
+    options: List[str]
+    correct_answer: str
+
+class ComprehensionResponse(BaseModel):
+    passage: str
+    multiple_choice: List[MultipleChoiceQuestion]
+    short_answer: List[str]
+    session_id: str
+
+class TranscriptionResponse(BaseModel):
+    transcription: str
+
+class PronunciationCheckRequest(BaseModel):
+   original_sentence: str
+   audio_file: Optional[str] = None  
+   transcribed_text: Optional[str] = None  
+
+class PronunciationCheckResponse(BaseModel):
+   similarity_percentage: float
+   original_text: str
+   spoken_text: str
+   feedback: str
+
+class ScreeningRequest(BaseModel):
+    company_with_role: str
+
+class AssessmentRequest(BaseModel):
+    company_with_role: str
+    questions: List[Dict[str, Any]]
+    responses: Dict[int, str]
+
+class ScreeningResponse(BaseModel):
+    company: str
+    role: str
+    role_title: str
+    questions: List[Dict[str, Any]]
+    scoring_criteria: Dict[str, int]
+    generated_at: str
+    total_questions: int
+
+class AssessmentResponse(BaseModel):
+    overall_score: int
+    category_scores: Dict[str, int]
+    strengths: List[str]
+    areas_for_improvement: List[str]
+    detailed_feedback: Dict[str, str]
+    recommendation: str
+    recommendation_reason: str
+    next_steps: List[str]
+    red_flags: List[str]
+    standout_responses: List[str]
+    assessment_date: str
+    company: str
+    role: str
+    role_title: str
+    total_responses: int
+    response_completion_rate: float
+
+class GenerateAptitudeQuestionsRequestModel(BaseModel):
+    roundType: str  # "APTITUDE", etc.
+    difficulty: str  # "easy", "medium", "hard"
+    questionCount: int
+    category: Optional[str] = None
+    duration: int
+    type: str  # "MCQ", "SUBJECTIVE", etc.
+
+
+class GenerateAptitudeQuestionsRequest(BaseModel):
+    questions_with_answers: List[dict]
+
+class TechnicalGenerationInput(BaseModel):
+    roundType: str
+    difficulty: str
+    questionCount: int
+    category: Optional[str]
+    duration: int
+    type: str
+
+class GenerateTechnicalQuestionsRequest(BaseModel):
+    questions_with_answers: List[dict]
 
 class BasicSentencesRequest(BaseModel):
     count: int = 10
@@ -106,6 +205,7 @@ class GenerateTechnicalQuestionsRequest(BaseModel):
 class GreetingRequest(BaseModel):
     user_name: str
     user_role: str
+    round_id: str = None
 
 class AIResponseRequest(BaseModel):
     session_id: str
