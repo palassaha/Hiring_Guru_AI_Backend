@@ -284,3 +284,6 @@ class CreateCustomAssessmentDto:
     description: Optional[str]
     difficulty: str
     rounds: List[CreateCustomRoundDto]
+
+class UserId:
+    id: str
