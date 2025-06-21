@@ -1,1 +1,90 @@
-[]
+[
+    {
+        "question": "A train passes a station platform in 36 seconds and a man standing on the platform in 20 seconds. If the speed of the train is 54 km/hr, what is the length of the platform?",
+        "options": [
+            "120 m",
+            "240 m",
+            "300 m",
+            "None of these"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "If A = x% of y and B = y% of x, then which of the following is true?",
+        "options": [
+            "A is smaller than B.",
+            "A is greater than B",
+            "Relationship between A and B cannot be determined.",
+            "If x is smaller than y, then A is greater than B.",
+            "None of these"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "What percentage of numbers from 1 to 70 have 1 or 9 in the unit's digit?",
+        "options": [
+            "4.",
+            "1",
+            "70",
+            "9"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "In the first 10 overs of a cricket game, the run rate was only 3.2. What should be the run rate in the remaining 40 overs to reach the target of 282 runs?",
+        "options": [
+            "6.25",
+            "6.5",
+            "6.75"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "A family consists of two grandparents, two parents and three grandchildren. The average age of the grandparents is 67 years, that of the parents is 35 years and that of the grandchildren is 6 years. What is the average age of the family?",
+        "options": [
+            "28 4 years",
+            "31 5 years",
+            "32 1 years",
+            "None of these"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "A vendor bought toffees at 6 for a rupee. How many for a rupee must he sell to gain 20%?",
+        "options": [
+            "5.",
+            "6",
+            "20%",
+            "3",
+            "4"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "A person crosses a 600 m long street in 5 minutes. What is his speed in km per hour?",
+        "options": [
+            "7.2",
+            "8.4"
+        ],
+        "answer": "",
+        "explanation": ""
+    },
+    {
+        "question": "Excluding stoppages, the speed of a bus is 54 kmph and including stoppages, it is 45 kmph. For how many minutes does the bus stop per hour?",
+        "options": [
+            "5.",
+            "54",
+            "45",
+            "9",
+            "10"
+        ],
+        "answer": "",
+        "explanation": ""
+    }
+]
