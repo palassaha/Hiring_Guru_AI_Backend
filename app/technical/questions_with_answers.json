@@ -1,11 +1,10 @@
 [
     {
-        "question": "What difference does the 5th generation computer have from other generation computers?",
+        "question": "Which of the following computer language is used for artificial intelligence?",
         "options": [
-            "Technological advancement",
-            "Scientific code",
-            "Object Oriented Programming",
-            "All of the above",
+            "FORTRAN",
+            "PROLOG",
+            "COBOL",
             "None of the above"
         ],
         "answer": "",

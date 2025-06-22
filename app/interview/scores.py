@@ -1,4 +1,3 @@
-# session_analyzer.py
 import json
 import os
 from typing import Dict, List, Optional, Any
@@ -12,217 +11,233 @@ openai.api_base = "https://api.groq.com/openai/v1"
 
 class SessionAnalyzer:
     def __init__(self, groq_api_key: str):
-        """
-        Initialize the SessionAnalyzer with Groq API key
-        """
+        """Initialize the SessionAnalyzer with Groq API key"""
         self.client = openai
         self.client.api_key = groq_api_key
         self.client.api_base = "https://api.groq.com/openai/v1"
     
     def analyze_session_scores(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Analyze a complete interview session and generate comprehensive scores
-        """
+        """Analyze a complete interview session and generate comprehensive scores"""
         try:
-            # Extract conversation data
-            conversation_history = session_data.get("conversation", [])
+            print(f"=== SESSION DATA ANALYSIS START ===")
+            print(f"Session ID: {session_data.get('session_id', 'Unknown')}")
+            
+            conversation_history = self._extract_conversation_from_session(session_data)
             user_responses = self._extract_user_responses(conversation_history)
             
+            print(f"Found {len(user_responses)} user responses")
             if not user_responses:
                 return self._generate_default_scores("No user responses found")
             
-            # Analyze each parameter
+            user_role = self._extract_user_role(session_data)
+            print(f"User role: {user_role}")
+            
             scores = {
                 "confidence": self._analyze_confidence(user_responses),
-                "technical": self._analyze_technical_knowledge(user_responses, session_data.get("user_role", "Software Engineer")),
+                "technical": self._analyze_technical_knowledge(user_responses, user_role),
                 "communication": self._analyze_communication(user_responses),
                 "fluency": self._analyze_fluency(user_responses),
-                "base_knowledge": self._analyze_base_knowledge(user_responses, session_data.get("user_role", "Software Engineer"))
+                "base_knowledge": self._analyze_base_knowledge(user_responses, user_role)
             }
             
-            # Calculate overall score
+            print(f"Generated scores: {scores}")
             overall_score = self._calculate_overall_score(scores)
+            feedback = self._generate_comprehensive_feedback(scores, user_responses, user_role)
             
-            # Generate feedback
-            feedback = self._generate_comprehensive_feedback(scores, user_responses, session_data.get("user_role", "Software Engineer"))
-            
+            print(f"=== SESSION DATA ANALYSIS END ===")
             return {
                 "overallScore": overall_score,
                 "scores": scores,
                 "feedback": feedback,
                 "analysis_timestamp": datetime.now().isoformat()
             }
-            
+
         except Exception as e:
             print(f"Error analyzing session: {e}")
+            import traceback
+            traceback.print_exc()
             return self._generate_default_scores(f"Analysis error: {str(e)}")
-    
+
+    def _extract_conversation_from_session(self, session_data: Dict[str, Any]) -> List[Dict]:
+        """Extract conversation messages"""
+        conversation = session_data.get("conversation", [])
+        print(f"Found conversation with {len(conversation)} messages")
+        return conversation
+
+    def _extract_user_role(self, session_data: Dict[str, Any]) -> str:
+        """Extract the user role"""
+        return session_data.get("user_role", "Software Engineer")
+
     def _extract_user_responses(self, conversation: List[Dict]) -> List[str]:
-        """Extract user responses from conversation history"""
+        """Extract user responses only"""
         responses = []
-        for message in conversation:
-            if message.get("type") == "user_response" and message.get("transcript"):
-                responses.append(message["transcript"])
+        print(f"Processing {len(conversation)} conversation messages")
+        for i, message in enumerate(conversation):
+            print(f"Message {i}: type={message.get('type')}, speaker={message.get('speaker')}")
+            if message.get("type") == "user_response":
+                response_text = message.get("content", "").strip()
+                if response_text:
+                    responses.append(response_text)
+                    print(f"Added response: '{response_text[:50]}...'")
+        print(f"Extracted {len(responses)} total responses")
         return responses
-    
+
     def _analyze_confidence(self, responses: List[str]) -> int:
-        """Analyze confidence level based on speech patterns and content"""
+        """Analyze confidence heuristically and with LLM"""
         try:
-            prompt = f"""
-            Analyze the confidence level of a candidate based on their interview responses.
-            
-            Responses: {' | '.join(responses)}
-            
-            Rate confidence from 1-100 based on:
-            - Use of assertive language vs hesitant phrases
-            - Clarity and decisiveness in answers
-            - Self-assurance indicators
-            - Frequency of filler words or uncertainty markers
-            
-            Return only a number between 1-100.
-            """
-            
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=10
-            )
-            
-            score = int(response.choices[0].message.content.strip())
-            return max(1, min(100, score))
-            
-        except:
-            return 75  # Default score
-    
+            if not responses:
+                return 50
+
+            all_responses = '\n'.join(responses)
+            confidence_indicators = [
+                "I am confident", "I believe", "definitely", "certainly",
+                "clearly", "obviously", "sure", "absolutely"
+            ]
+            hesitation_indicators = [
+                "I think", "maybe", "probably", "I'm not sure", "perhaps",
+                "I guess", "kind of", "sort of", "possibly"
+            ]
+
+            confidence_count = sum(1 for word in confidence_indicators
+                                   if any(word.lower() in r.lower() for r in responses))
+            hesitation_count = sum(1 for word in hesitation_indicators
+                                   if any(word.lower() in r.lower() for r in responses))
+
+            total_words = sum(len(r.split()) for r in responses)
+            avg_len = total_words / len(responses)
+
+            base_score = 50
+            if confidence_count > hesitation_count:
+                base_score += 20
+            elif hesitation_count > confidence_count:
+                base_score -= 15
+
+            if avg_len > 30:
+                base_score += 10
+            elif avg_len < 10:
+                base_score -= 10
+
+            try:
+                prompt = f"""
+                Analyze confidence level (1-100) based on these interview responses:
+                {all_responses[:1000]}...
+                Respond with only a number 1-100.
+                """
+                response = self.client.chat.completions.create(
+                    model="llama3-8b-8192",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=10
+                )
+                llm_score = self._extract_score_from_text(response.choices[0].message.content.strip())
+                return max(1, min(100, (base_score + llm_score) // 2))
+
+            except Exception as e:
+                print(f"LLM fallback failed: {e}")
+                return base_score
+
+        except Exception as e:
+            print(f"Confidence analysis error: {e}")
+            return 75
+
     def _analyze_technical_knowledge(self, responses: List[str], role: str) -> int:
-        """Analyze technical knowledge and expertise"""
+        """Analyze technical depth"""
         try:
-            prompt = f"""
-            Analyze the technical knowledge of a {role} candidate based on their responses.
-            
-            Responses: {' | '.join(responses)}
-            Role: {role}
-            
-            Rate technical knowledge from 1-100 based on:
-            - Depth of technical understanding
-            - Use of appropriate technical terminology
-            - Problem-solving approach
-            - Knowledge of relevant technologies and concepts
-            - Ability to explain complex topics
-            
-            Return only a number between 1-100.
-            """
-            
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=10
-            )
-            
-            score = int(response.choices[0].message.content.strip())
-            return max(1, min(100, score))
-            
-        except:
-            return 70  # Default score
-    
+            all_text = '\n'.join(responses)
+            keywords = [
+                'algorithm', 'data structure', 'database', 'API', 'framework',
+                'programming', 'coding', 'software', 'system', 'architecture',
+                'class', 'method', 'function', 'variable', 'object', 'thread',
+                'exception', 'null', 'synchronized', 'lock', 'deadlock',
+                'hashmap', 'java', 'python', 'javascript', 'sql'
+            ]
+            keyword_count = sum(1 for k in keywords if any(k in r.lower() for r in responses))
+            base_score = min(85, 40 + keyword_count * 3)
+
+            try:
+                prompt = f"""
+                Rate technical knowledge (1-100) for {role} role based on responses:
+                {all_text[:1000]}...
+                Respond with only a number 1-100.
+                """
+                response = self.client.chat.completions.create(
+                    model="llama3-8b-8192",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=10
+                )
+                llm_score = self._extract_score_from_text(response.choices[0].message.content.strip())
+                return max(1, min(100, (base_score + llm_score) // 2))
+
+            except Exception:
+                return base_score
+
+        except Exception as e:
+            print(f"Technical knowledge error: {e}")
+            return 70
+
     def _analyze_communication(self, responses: List[str]) -> int:
-        """Analyze communication skills"""
+        """Analyze communication clarity and structure"""
         try:
-            prompt = f"""
-            Analyze the communication skills of a candidate based on their responses.
-            
-            Responses: {' | '.join(responses)}
-            
-            Rate communication skills from 1-100 based on:
-            - Clarity and coherence of responses
-            - Structure and organization of thoughts
-            - Ability to articulate ideas effectively
-            - Listening and responding appropriately
-            - Professional communication style
-            
-            Return only a number between 1-100.
-            """
-            
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=10
-            )
-            
-            score = int(response.choices[0].message.content.strip())
-            return max(1, min(100, score))
-            
-        except:
-            return 75  # Default score
-    
+            total_words = sum(len(r.split()) for r in responses)
+            avg_len = total_words / len(responses)
+            base_score = 50
+
+            if avg_len > 25:
+                base_score += 15
+            elif avg_len < 8:
+                base_score -= 15
+
+            complete = sum(1 for r in responses if r.endswith('.') or len(r.split()) > 5)
+            if complete == len(responses):
+                base_score += 10
+
+            return max(1, min(100, base_score))
+        except Exception as e:
+            print(f"Communication analysis error: {e}")
+            return 75
+
     def _analyze_fluency(self, responses: List[str]) -> int:
-        """Analyze language fluency and flow"""
+        """Analyze fluency and filler usage"""
         try:
-            prompt = f"""
-            Analyze the language fluency of a candidate based on their responses.
-            
-            Responses: {' | '.join(responses)}
-            
-            Rate fluency from 1-100 based on:
-            - Smooth flow of speech (minimal hesitations)
-            - Proper grammar and sentence structure
-            - Vocabulary range and appropriateness
-            - Natural rhythm and pace
-            - Minimal repetition or filler words
-            
-            Return only a number between 1-100.
-            """
-            
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=10
-            )
-            
-            score = int(response.choices[0].message.content.strip())
-            return max(1, min(100, score))
-            
-        except:
-            return 80  # Default score
-    
+            text = ' '.join(responses).lower()
+            fillers = ['um', 'uh', 'like', 'you know', 'basically', 'actually']
+            filler_count = sum(text.count(f) for f in fillers)
+            total_words = len(text.split())
+
+            base_score = 80
+            if total_words > 0:
+                ratio = filler_count / total_words
+                if ratio > 0.05:
+                    base_score -= 20
+                elif ratio > 0.02:
+                    base_score -= 10
+
+            return max(1, min(100, base_score))
+        except Exception as e:
+            print(f"Fluency analysis error: {e}")
+            return 80
+
     def _analyze_base_knowledge(self, responses: List[str], role: str) -> int:
-        """Analyze fundamental knowledge relevant to the role"""
+        """Evaluate fundamental understanding"""
         try:
-            prompt = f"""
-            Analyze the fundamental knowledge of a {role} candidate.
-            
-            Responses: {' | '.join(responses)}
-            Role: {role}
-            
-            Rate base knowledge from 1-100 based on:
-            - Understanding of core concepts
-            - Industry awareness and trends
-            - Foundational skills and principles
-            - General knowledge relevant to the role
-            - Learning aptitude and curiosity
-            
-            Return only a number between 1-100.
-            """
-            
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=10
-            )
-            
-            score = int(response.choices[0].message.content.strip())
+            indicators = [
+                'understand', 'concept', 'principle', 'approach', 'method',
+                'solution', 'problem', 'analysis', 'design', 'implementation'
+            ]
+            score = 50 + min(30, sum(1 for k in indicators if any(k in r.lower() for r in responses)) * 2)
             return max(1, min(100, score))
-            
-        except:
-            return 70  # Default score
-    
+        except Exception as e:
+            print(f"Base knowledge analysis error: {e}")
+            return 70
+
+    def _extract_score_from_text(self, text: str) -> int:
+        """Extract numeric score from string"""
+        import re
+        match = re.findall(r'\d+', text)
+        return int(match[0]) if match else 50
+
     def _calculate_overall_score(self, scores: Dict[str, int]) -> int:
-        """Calculate weighted overall score"""
         weights = {
             "confidence": 0.15,
             "technical": 0.30,
@@ -230,107 +245,54 @@ class SessionAnalyzer:
             "fluency": 0.15,
             "base_knowledge": 0.15
         }
-        
-        overall = sum(scores[param] * weights[param] for param in weights)
-        return round(overall)
-    
+        return round(sum(scores[k] * weights[k] for k in weights))
+
     def _generate_comprehensive_feedback(self, scores: Dict[str, int], responses: List[str], role: str) -> Dict[str, Any]:
-        """Generate detailed feedback based on scores and responses"""
-        try:
-            prompt = f"""
-            Generate comprehensive interview feedback for a {role} candidate.
-            
-            Scores:
-            - Confidence: {scores['confidence']}/100
-            - Technical Knowledge: {scores['technical']}/100
-            - Communication: {scores['communication']}/100
-            - Fluency: {scores['fluency']}/100
-            - Base Knowledge: {scores['base_knowledge']}/100
-            
-            Sample Responses: {' | '.join(responses[:3])}
-            
-            Provide feedback in this exact JSON format:
-            {{
-                "strengths": ["strength1", "strength2", "strength3"],
-                "improvements": ["improvement1", "improvement2", "improvement3"],
-                "detailedFeedback": "Comprehensive paragraph about overall performance, specific observations, and actionable recommendations."
-            }}
-            
-            Make the feedback specific, actionable, and professional.
-            """
-            
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.4,
-                max_tokens=500
-            )
-            
-            feedback_text = response.choices[0].message.content.strip()
-            
-            # Try to parse as JSON, fallback to structured format
-            try:
-                return json.loads(feedback_text)
-            except:
-                return self._parse_feedback_text(feedback_text, scores)
-                
-        except Exception as e:
-            print(f"Error generating feedback: {e}")
-            return self._generate_default_feedback(scores)
-    
-    def _parse_feedback_text(self, text: str, scores: Dict[str, int]) -> Dict[str, Any]:
-        """Parse feedback text if JSON parsing fails"""
         strengths = []
         improvements = []
-        detailed_feedback = text
-        
-        # Extract strengths and improvements based on scores
-        if scores['confidence'] >= 80:
-            strengths.append("Shows strong confidence in responses")
-        elif scores['confidence'] < 60:
-            improvements.append("Work on building confidence and assertiveness")
-            
-        if scores['technical'] >= 80:
-            strengths.append("Demonstrates solid technical knowledge")
-        elif scores['technical'] < 60:
-            improvements.append("Enhance technical skills and knowledge base")
-            
-        if scores['communication'] >= 80:
-            strengths.append("Excellent communication and articulation skills")
-        elif scores['communication'] < 60:
-            improvements.append("Improve communication clarity and organization")
-        
-        return {
-            "strengths": strengths or ["Shows potential in interview responses"],
-            "improvements": improvements or ["Continue practicing interview skills"],
-            "detailedFeedback": detailed_feedback or "Overall performance shows room for growth with continued practice."
-        }
-    
-    def _generate_default_feedback(self, scores: Dict[str, int]) -> Dict[str, Any]:
-        """Generate default feedback based on scores"""
+
+        if scores["confidence"] >= 75:
+            strengths.append("Demonstrates strong confidence")
+        if scores["technical"] >= 75:
+            strengths.append("Solid technical understanding")
+        if scores["communication"] >= 75:
+            strengths.append("Clear and structured communicator")
+        if scores["fluency"] >= 75:
+            strengths.append("Fluent language and delivery")
+        if scores["base_knowledge"] >= 75:
+            strengths.append("Good foundational understanding")
+
+        if scores["confidence"] < 60:
+            improvements.append("Improve assertiveness and confidence")
+        if scores["technical"] < 60:
+            improvements.append("Strengthen core technical concepts")
+        if scores["communication"] < 60:
+            improvements.append("Structure responses more clearly")
+        if scores["fluency"] < 60:
+            improvements.append("Reduce fillers and improve flow")
+        if scores["base_knowledge"] < 60:
+            improvements.append("Study fundamental concepts for the role")
+
+        if not strengths:
+            strengths = ["Participated actively in the interview"]
+        if not improvements:
+            improvements = ["Maintain consistency and continue practicing"]
+
         avg_score = sum(scores.values()) / len(scores)
-        
         if avg_score >= 80:
-            return {
-                "strengths": ["Strong overall performance", "Good technical understanding", "Clear communication"],
-                "improvements": ["Continue refining skills", "Practice complex scenarios"],
-                "detailedFeedback": "Excellent interview performance with strong technical and communication skills. Continue building on this foundation."
-            }
+            summary = "Excellent performance with strong responses across all dimensions."
         elif avg_score >= 60:
-            return {
-                "strengths": ["Shows potential", "Basic understanding demonstrated", "Willing to engage"],
-                "improvements": ["Enhance technical knowledge", "Improve communication clarity", "Build confidence"],
-                "detailedFeedback": "Good foundation with room for improvement. Focus on strengthening technical skills and communication clarity."
-            }
+            summary = "Good performance with potential to excel further with targeted improvements."
         else:
-            return {
-                "strengths": ["Shows willingness to learn", "Participates in discussion"],
-                "improvements": ["Significant technical skill development needed", "Improve communication skills", "Build confidence"],
-                "detailedFeedback": "Requires focused preparation and skill development. Recommend additional practice and study before next interview."
-            }
-    
+            summary = "Needs improvement in key areas for interview success."
+
+        return {
+            "strengths": strengths,
+            "improvements": improvements,
+            "detailedFeedback": summary
+        }
+
     def _generate_default_scores(self, reason: str) -> Dict[str, Any]:
-        """Generate default scores when analysis fails"""
         return {
             "overallScore": 50,
             "scores": {
